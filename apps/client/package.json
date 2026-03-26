@@ -1,0 +1,16 @@
+{
+  "name": "@healer/client",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@healer/content": "0.1.0",
+    "@healer/shared": "0.1.0",
+    "pixi.js": "^8.10.1"
+  }
+}
+
+

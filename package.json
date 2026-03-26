@@ -1,0 +1,33 @@
+{
+  "name": "healer-and-destroyer",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:packages && npm run build:client",
+    "build:packages": "tsc -b tsconfig.build.json",
+    "build:client": "npm run build --workspace @healer/client",
+    "dev:server": "npm run dev --workspace @healer/server",
+    "dev:client": "npm run dev --workspace @healer/client",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.20.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "pg": "^8.16.0",
+    "pixi.js": "^8.10.1",
+    "ws": "^8.18.3",
+    "zod": "^3.24.4"
+  }
+}

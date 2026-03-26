@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Healer and Destroyer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #152337, #081018 55%, #03070b 100%);
+        color: #e9f2ff;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
+
+      #app {
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #hud {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        display: grid;
+        gap: 8px;
+        padding: 12px 14px;
+        background: rgba(5, 10, 16, 0.72);
+        border: 1px solid rgba(132, 204, 255, 0.25);
+        border-radius: 14px;
+        backdrop-filter: blur(12px);
+        min-width: 220px;
+      }
+
+      #builder {
+        position: fixed;
+        right: 16px;
+        top: 16px;
+        width: 320px;
+        max-height: calc(100vh - 32px);
+        overflow: auto;
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(111, 234, 208, 0.25);
+        background: rgba(10, 18, 22, 0.78);
+        display: none;
+      }
+
+      #builder.visible {
+        display: block;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 10px 14px;
+        margin: 0 8px 8px 0;
+        background: linear-gradient(135deg, #49c6ff, #73f3ca);
+        color: #04131c;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #8cc8ff;
+      }
+
+      .ship-card {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"></div>
+    <div id="builder"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+  </html>
+

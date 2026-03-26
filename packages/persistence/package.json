@@ -1,0 +1,13 @@
+{
+  "name": "@healer/persistence",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@healer/shared": "0.1.0",
+    "pg": "^8.16.0"
+  }
+}
+
+
