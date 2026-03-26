@@ -3,6 +3,11 @@ import type { InstalledModule } from "./content.js";
 import type { ResourceMap } from "./resources.js";
 import type { Vec2, Vec2i } from "./math.js";
 
+export interface CraftedModuleStack {
+  moduleId: string;
+  quantity: number;
+}
+
 export interface SpawnPoint {
   mapId: MapId;
   position: Vec2;
@@ -22,6 +27,7 @@ export interface PlayerSave {
   playerId: PlayerId;
   worldId: WorldId;
   resourceCounts: ResourceMap;
+  craftedModules: CraftedModuleStack[];
   shipStable: Record<string, StoredShip>;
   activeShipId: ShipId;
   spawnPoint: SpawnPoint;
@@ -74,3 +80,7 @@ export interface ChunkDelta {
   changedCells: Array<{ index: number; value: number }>;
 }
 
+export interface PersistedMapState {
+  map: PersistentMapSummary;
+  chunkDeltas: ChunkDelta[];
+}

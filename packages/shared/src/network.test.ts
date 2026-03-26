@@ -27,7 +27,9 @@ describe("network schemas", () => {
         seed: "seed",
         width: 2,
         height: 2,
-        chunks: {},
+        chunks: {
+          "0,0": { chunkX: 0, chunkY: 0, cells: [1, 0, 0, 1], dirty: false, active: true }
+        },
         players: {
           a: {
             id: asEntityId("ship-1"),
@@ -73,5 +75,6 @@ describe("network schemas", () => {
 
     expect(snapshot.players).toHaveLength(1);
     expect(snapshot.builderSiteNearby).toBe(true);
+    expect(snapshot.chunks).toHaveLength(1);
   });
 });

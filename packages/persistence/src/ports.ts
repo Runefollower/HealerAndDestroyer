@@ -1,4 +1,4 @@
-import type { ChunkDelta, PersistentMapSummary, PersistentWorld, PlayerSave, StoredShip } from "@healer/shared";
+import type { PersistedMapState, PersistentWorld, PlayerSave, StoredShip } from "@healer/shared";
 import type { MapId, PlayerId, ShipId, WorldId } from "@healer/shared";
 
 export interface PlayerRepository {
@@ -12,8 +12,8 @@ export interface WorldRepository {
 }
 
 export interface MapRepository {
-  getMap(worldId: WorldId, mapId: MapId): Promise<PersistentMapSummary | null>;
-  saveMap(worldId: WorldId, map: PersistentMapSummary, chunkDeltas: ChunkDelta[]): Promise<void>;
+  getMapState(worldId: WorldId, mapId: MapId): Promise<PersistedMapState | null>;
+  saveMapState(worldId: WorldId, mapState: PersistedMapState): Promise<void>;
 }
 
 export interface StructureRepository {
@@ -32,4 +32,3 @@ export interface PersistenceBundle {
   structures: StructureRepository;
   ships: ShipRepository;
 }
-

@@ -13,8 +13,10 @@ import {
   type WorldRuntimeState
 } from "@healer/shared";
 
+export const CHUNK_SIZE = 8;
+
 function createChunk(fill: number): number[] {
-  return Array.from({ length: 64 }, (_, index) => (index % 7 === 0 ? fill : 0));
+  return Array.from({ length: CHUNK_SIZE * CHUNK_SIZE }, (_, index) => (index % 7 === 0 ? fill : 0));
 }
 
 export function createWorldGraph(worldId = asWorldId("world-alpha")): PersistentWorld {
@@ -90,7 +92,8 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       width: 64,
       height: 64,
       chunks: {
-        "0,0": { chunkX: 0, chunkY: 0, cells: createChunk(1), dirty: false, active: true }
+        "0,0": { chunkX: 0, chunkY: 0, cells: createChunk(1), dirty: false, active: true },
+        "1,0": { chunkX: 1, chunkY: 0, cells: createChunk(1), dirty: false, active: true }
       },
       players: {},
       enemies: {
@@ -138,7 +141,8 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       width: 64,
       height: 64,
       chunks: {
-        "0,0": { chunkX: 0, chunkY: 0, cells: createChunk(2), dirty: false, active: true }
+        "0,0": { chunkX: 0, chunkY: 0, cells: createChunk(2), dirty: false, active: true },
+        "1,0": { chunkX: 1, chunkY: 0, cells: createChunk(2), dirty: false, active: true }
       },
       players: {},
       enemies: {},
@@ -157,6 +161,7 @@ export function createDefaultPlayerSave(worldId: string, playerId: string): Play
     playerId: asPlayerId(playerId),
     worldId: asWorldId(worldId),
     resourceCounts: { ferrite: 25, "plasma-crystal": 5 },
+    craftedModules: [],
     shipStable: {
       [shipId]: {
         id: shipId,
@@ -189,4 +194,3 @@ export function createRuntimeState(): WorldRuntimeState {
     maps: createActiveMaps()
   };
 }
-

@@ -39,8 +39,10 @@ export const changeMapSchema = z.object({
 
 export const builderActionSchema = z.object({
   type: z.literal("builderAction"),
-  action: z.enum(["craftModule", "startShipBuild", "swapShip"]),
-  targetId: z.string()
+  action: z.enum(["craftModule", "startShipBuild", "swapShip", "installModule", "removeModule"]),
+  targetId: z.string(),
+  shipId: z.string().optional(),
+  hardpointId: z.string().optional()
 });
 
 export const joinWorldSchema = z.object({
@@ -100,6 +102,13 @@ export interface DropSnapshot {
   resources: ResourceMap;
 }
 
+export interface ChunkSnapshot {
+  chunkKey: string;
+  chunkX: number;
+  chunkY: number;
+  cells: number[];
+}
+
 export interface SnapshotMessage {
   type: "snapshot";
   tick: number;
@@ -110,6 +119,7 @@ export interface SnapshotMessage {
   projectiles: ProjectileSnapshot[];
   structures: StructureSnapshot[];
   drops: DropSnapshot[];
+  chunks: ChunkSnapshot[];
   inventory: ResourceMap;
   builderSiteNearby: boolean;
 }
@@ -121,7 +131,9 @@ export interface JoinedWorldMessage {
 
 export interface BuilderStateMessage {
   type: "builderState";
+  activeShipId: PlayerSave["activeShipId"];
   availableShips: PlayerSave["shipStable"];
+  craftedModules: PlayerSave["craftedModules"];
 }
 
 export type ServerMessage = SnapshotMessage | JoinedWorldMessage | BuilderStateMessage;
@@ -169,8 +181,13 @@ export function createSnapshotMessage(
       position: drop.position,
       resources: drop.resources
     })),
+    chunks: Object.entries(map.chunks).map(([chunkKey, chunk]) => ({
+      chunkKey,
+      chunkX: chunk.chunkX,
+      chunkY: chunk.chunkY,
+      cells: [...chunk.cells]
+    })),
     inventory: self.inventory,
     builderSiteNearby
   };
 }
-

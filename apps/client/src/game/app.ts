@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { hullDefinitions, moduleDefinitions } from "@healer/content";
-import type { ServerMessage, SnapshotMessage } from "@healer/shared";
+import { getHullDefinition, hullDefinitions, moduleDefinitions } from "@healer/content";
+import type { BuilderStateMessage, ServerMessage, SnapshotMessage } from "@healer/shared";
 import { attachInputListeners, createInputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
 import { createClientStore } from "./store.js";
@@ -32,10 +32,6 @@ export async function bootstrapClient(): Promise<void> {
 
   window.addEventListener("builder-interact", () => {
     network.send({ type: "interact" });
-  });
-
-  window.addEventListener("builder-send", (event) => {
-    network.sendBuilderAction((event as CustomEvent<ServerMessage & { targetId: string }>).detail);
   });
 
   await network.connect(`pilot-${Math.floor(Math.random() * 10000)}`);
@@ -94,35 +90,70 @@ function renderHud(hud: HTMLElement, snapshot: SnapshotMessage): void {
     <div>Players nearby: ${snapshot.players.length}</div>
     <div>Enemies nearby: ${snapshot.enemies.length}</div>
     <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
+    <div>Terrain chunks: ${snapshot.chunks.length}</div>
     <div>${inventoryEntries}</div>
     <div>Controls: WASD move, mouse aim/fire, E interact</div>
   `;
 }
 
-function renderBuilderState(network: NetworkClient, builder: HTMLElement, message: Extract<ServerMessage, { type: "builderState" }>): void {
+function renderBuilderState(network: NetworkClient, builder: HTMLElement, message: BuilderStateMessage): void {
   const hullButtons = hullDefinitions
     .map((hull) => `<button data-action="build" data-target="${hull.id}">Build ${hull.name}</button>`)
     .join("");
   const moduleButtons = moduleDefinitions
-    .slice(0, 3)
     .map((module) => `<button data-action="craft" data-target="${module.id}">Craft ${module.name}</button>`)
     .join("");
+
+  const craftedModuleSummary = message.craftedModules.length
+    ? message.craftedModules.map((entry) => `<div>${entry.moduleId}: ${entry.quantity}</div>`).join("")
+    : "<div>No crafted modules in storage.</div>";
+
   const ships = Object.values(message.availableShips)
-    .map(
-      (ship) => `
+    .map((ship) => {
+      const hull = getHullDefinition(ship.hullId);
+      const installedByHardpoint = new Map(ship.modules.map((module) => [module.hardpointId, module]));
+      const hardpoints = hull.hardpoints
+        .map((hardpoint) => {
+          const installed = installedByHardpoint.get(hardpoint.id);
+          const compatibleModules = message.craftedModules.filter((stack) => {
+            const definition = moduleDefinitions.find((module) => module.id === stack.moduleId);
+            return definition?.slotType === hardpoint.type;
+          });
+          const installButtons = compatibleModules
+            .map(
+              (stack) =>
+                `<button data-action="install" data-ship="${ship.id}" data-hardpoint="${hardpoint.id}" data-target="${stack.moduleId}">Install ${stack.moduleId}</button>`
+            )
+            .join("");
+          const removeButton = installed
+            ? `<button data-action="remove" data-ship="${ship.id}" data-hardpoint="${hardpoint.id}" data-target="${installed.moduleId}">Remove ${installed.moduleId}</button>`
+            : "<span>Empty</span>";
+          return `
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08)">
+              <strong>${hardpoint.id}</strong> (${hardpoint.type})<br/>
+              ${installed ? `Installed: ${installed.moduleId}<br/>` : "Installed: none<br/>"}
+              ${installButtons || ""}
+              ${removeButton}
+            </div>
+          `;
+        })
+        .join("");
+      return `
         <div class="ship-card">
-          <strong>${ship.name}</strong><br/>
+          <strong>${ship.name}</strong>${ship.id === message.activeShipId ? " (Active)" : ""}<br/>
           Hull: ${ship.hullId}<br/>
           Status: ${ship.status}<br/>
           <button data-action="swap" data-target="${ship.id}">Swap To This Ship</button>
+          ${hardpoints}
         </div>
-      `
-    )
+      `;
+    })
     .join("");
 
   builder.innerHTML = `
     <p class="panel-title">Builder Site</p>
-    <div>${moduleButtons}</div>
+    <div><strong>Crafted Modules</strong>${craftedModuleSummary}</div>
+    <div style="margin-top: 10px">${moduleButtons}</div>
     <div style="margin-top: 10px">${hullButtons}</div>
     <div style="margin-top: 14px">${ships}</div>
   `;
@@ -131,6 +162,8 @@ function renderBuilderState(network: NetworkClient, builder: HTMLElement, messag
     button.addEventListener("click", () => {
       const action = button.getAttribute("data-action");
       const targetId = button.getAttribute("data-target");
+      const shipId = button.getAttribute("data-ship") ?? undefined;
+      const hardpointId = button.getAttribute("data-hardpoint") ?? undefined;
       if (!action || !targetId) {
         return;
       }
@@ -139,8 +172,12 @@ function renderBuilderState(network: NetworkClient, builder: HTMLElement, messag
         network.sendBuilderAction({ type: "builderAction", action: "craftModule", targetId });
       } else if (action === "build") {
         network.sendBuilderAction({ type: "builderAction", action: "startShipBuild", targetId });
-      } else {
+      } else if (action === "swap") {
         network.sendBuilderAction({ type: "builderAction", action: "swapShip", targetId });
+      } else if (action === "install") {
+        network.sendBuilderAction({ type: "builderAction", action: "installModule", targetId, shipId, hardpointId });
+      } else if (action === "remove") {
+        network.sendBuilderAction({ type: "builderAction", action: "removeModule", targetId, shipId, hardpointId });
       }
     });
   });
@@ -148,6 +185,22 @@ function renderBuilderState(network: NetworkClient, builder: HTMLElement, messag
 
 function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): void {
   worldLayer.removeChildren();
+
+  for (const chunk of snapshot.chunks) {
+    const tileSize = 32;
+    chunk.cells.forEach((cell, index) => {
+      if (cell === 0) {
+        return;
+      }
+      const localX = index % 8;
+      const localY = Math.floor(index / 8);
+      const x = (chunk.chunkX * 8 + localX) * tileSize;
+      const y = (chunk.chunkY * 8 + localY) * tileSize;
+      const graphic = new Graphics();
+      graphic.rect(x, y, tileSize, tileSize).fill(cell === 1 ? 0x374a5d : 0x3d5665);
+      worldLayer.addChild(graphic);
+    });
+  }
 
   for (const structure of snapshot.structures) {
     const graphic = new Graphics();
@@ -180,4 +233,3 @@ function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): void {
     worldLayer.addChild(label);
   }
 }
-

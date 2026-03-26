@@ -3,7 +3,7 @@ import { createInMemoryPersistence } from "./memory.js";
 import { asMapId, asPlayerId, asShipId, asWorldId } from "@healer/shared";
 
 describe("in-memory persistence", () => {
-  it("restores player and ship state", async () => {
+  it("restores player, ship, and crafted module state", async () => {
     const persistence = createInMemoryPersistence();
     const worldId = asWorldId("world-1");
     const playerId = asPlayerId("player-1");
@@ -13,6 +13,7 @@ describe("in-memory persistence", () => {
       playerId,
       worldId,
       resourceCounts: { ferrite: 10 },
+      craftedModules: [{ moduleId: "repair-beam", quantity: 1 }],
       shipStable: {
         "ship-1": {
           id: shipId,
@@ -33,8 +34,21 @@ describe("in-memory persistence", () => {
       updatedAt: Date.now()
     });
 
+    await persistence.maps.saveMapState(worldId, {
+      map: {
+        id: asMapId("map-root"),
+        seed: "seed",
+        status: "active",
+        connectionIds: [],
+        lastActivatedAt: Date.now()
+      },
+      chunkDeltas: [{ chunkKey: "0,0", changedCells: [{ index: 0, value: 0 }] }]
+    });
+
     const restored = await persistence.players.getPlayer(worldId, playerId);
+    const restoredMap = await persistence.maps.getMapState(worldId, asMapId("map-root"));
     expect(restored?.activeShipId).toBe(shipId);
-    expect(restored?.spawnPoint.mapId).toBe(asMapId("map-root"));
+    expect(restored?.craftedModules[0]?.moduleId).toBe("repair-beam");
+    expect(restoredMap?.chunkDeltas[0]?.chunkKey).toBe("0,0");
   });
 });

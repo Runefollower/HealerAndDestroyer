@@ -1,4 +1,4 @@
-import type { ChunkDelta, PersistentMapSummary, PersistentWorld, PlayerSave, StoredShip } from "@healer/shared";
+import type { PersistedMapState, PersistentWorld, PlayerSave, StoredShip } from "@healer/shared";
 import type { MapId, PlayerId, ShipId, WorldId } from "@healer/shared";
 import type { MapRepository, PersistenceBundle, PlayerRepository, ShipRepository, StructureRepository, WorldRepository } from "./ports.js";
 
@@ -31,14 +31,14 @@ class InMemoryWorldRepository implements WorldRepository {
 }
 
 class InMemoryMapRepository implements MapRepository {
-  private maps = new Map<string, { map: PersistentMapSummary; chunkDeltas: ChunkDelta[] }>();
+  private maps = new Map<string, PersistedMapState>();
 
-  async getMap(worldId: WorldId, mapId: MapId): Promise<PersistentMapSummary | null> {
-    return clone(this.maps.get(`${worldId}:${mapId}`)?.map ?? null);
+  async getMapState(worldId: WorldId, mapId: MapId): Promise<PersistedMapState | null> {
+    return clone(this.maps.get(`${worldId}:${mapId}`) ?? null);
   }
 
-  async saveMap(worldId: WorldId, map: PersistentMapSummary, chunkDeltas: ChunkDelta[]): Promise<void> {
-    this.maps.set(`${worldId}:${map.id}`, { map: clone(map), chunkDeltas: clone(chunkDeltas) });
+  async saveMapState(worldId: WorldId, mapState: PersistedMapState): Promise<void> {
+    this.maps.set(`${worldId}:${mapState.map.id}`, clone(mapState));
   }
 }
 
@@ -71,4 +71,3 @@ export function createInMemoryPersistence(): PersistenceBundle {
     ships: new InMemoryShipRepository()
   };
 }
-

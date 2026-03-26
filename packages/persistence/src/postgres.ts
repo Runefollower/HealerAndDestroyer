@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import type { ChunkDelta, PersistentMapSummary, PersistentWorld, PlayerSave, StoredShip } from "@healer/shared";
+import type { PersistedMapState, PersistentWorld, PlayerSave, StoredShip } from "@healer/shared";
 import type { MapId, PlayerId, ShipId, WorldId } from "@healer/shared";
 import type { MapRepository, PersistenceBundle, PlayerRepository, ShipRepository, StructureRepository, WorldRepository } from "./ports.js";
 
@@ -42,15 +42,23 @@ class PostgresWorldRepository implements WorldRepository {
 class PostgresMapRepository implements MapRepository {
   constructor(private readonly pool: Pool) {}
 
-  async getMap(worldId: WorldId, mapId: MapId): Promise<PersistentMapSummary | null> {
-    const result = await this.pool.query("select payload from maps where world_id = $1 and map_id = $2", [worldId, mapId]);
-    return (result.rows[0]?.payload as PersistentMapSummary | undefined) ?? null;
+  async getMapState(worldId: WorldId, mapId: MapId): Promise<PersistedMapState | null> {
+    const result = await this.pool.query("select payload, chunk_deltas from maps where world_id = $1 and map_id = $2", [worldId, mapId]);
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      map: row.payload as PersistedMapState["map"],
+      chunkDeltas: (row.chunk_deltas as PersistedMapState["chunkDeltas"]) ?? []
+    };
   }
 
-  async saveMap(worldId: WorldId, map: PersistentMapSummary, chunkDeltas: ChunkDelta[]): Promise<void> {
+  async saveMapState(worldId: WorldId, mapState: PersistedMapState): Promise<void> {
     await this.pool.query(
       "insert into maps(world_id, map_id, payload, chunk_deltas) values ($1, $2, $3, $4) on conflict (world_id, map_id) do update set payload = excluded.payload, chunk_deltas = excluded.chunk_deltas",
-      [worldId, map.id, map, chunkDeltas]
+      [worldId, mapState.map.id, mapState.map, mapState.chunkDeltas]
     );
   }
 }
@@ -129,4 +137,3 @@ create table if not exists ships (
   primary key (world_id, player_id, ship_id)
 );
 `;
-

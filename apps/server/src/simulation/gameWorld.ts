@@ -1,4 +1,4 @@
-import { enemyDefinitions, getHullDefinition, moduleDefinitions, weaponDefinitions } from "@healer/content";
+import { enemyDefinitions, getHullDefinition, getModuleDefinition, moduleDefinitions, weaponDefinitions } from "@healer/content";
 import { createInMemoryPersistence, type PersistenceBundle } from "@healer/persistence";
 import {
   addResourceMaps,
@@ -13,17 +13,24 @@ import {
   normalize,
   scaleVec2,
   subtractResourceMaps,
+  type ActiveMapState,
   type BuilderActionMessage,
   type ChangeMapMessage,
+  type ChunkDelta,
+  type CraftedModuleStack,
   type FireWeaponMessage,
   type InteractMessage,
   type MoveInputMessage,
+  type PersistedMapState,
+  type PersistentWorld,
   type PlayerSave,
+  type PlayerShipState,
   type ServerMessage,
   type SnapshotMessage,
+  type StoredShip,
   type WorldRuntimeState
 } from "@healer/shared";
-import { createDefaultPlayerSave, createRuntimeState, createWorldGraph } from "./createWorld.js";
+import { CHUNK_SIZE, createDefaultPlayerSave, createRuntimeState, createWorldGraph } from "./createWorld.js";
 
 interface PlayerSessionState {
   playerId: ReturnType<typeof asPlayerId>;
@@ -37,6 +44,7 @@ export class GameWorld {
   readonly runtime: WorldRuntimeState;
   private readonly sessions = new Map<string, PlayerSessionState>();
   private tickCounter = 0;
+  private persistentWorld: PersistentWorld = createWorldGraph(this.worldId);
 
   constructor(persistence: PersistenceBundle = createInMemoryPersistence()) {
     this.persistence = persistence;
@@ -44,7 +52,20 @@ export class GameWorld {
   }
 
   async initialize(): Promise<void> {
-    await this.persistence.worlds.saveWorld(createWorldGraph(this.worldId));
+    const storedWorld = await this.persistence.worlds.getWorld(this.worldId);
+    this.persistentWorld = storedWorld ?? createWorldGraph(this.worldId);
+    if (!storedWorld) {
+      await this.persistence.worlds.saveWorld(this.persistentWorld);
+    }
+
+    for (const mapSummary of Object.values(this.persistentWorld.maps)) {
+      const persisted = await this.persistence.maps.getMapState(this.worldId, mapSummary.id);
+      if (persisted) {
+        this.applyPersistedMapState(mapSummary.id, persisted);
+      } else {
+        await this.persistence.maps.saveMapState(this.worldId, this.serializeMapState(mapSummary.id));
+      }
+    }
   }
 
   async connectPlayer(rawPlayerId: string): Promise<PlayerSave> {
@@ -55,24 +76,10 @@ export class GameWorld {
       await this.persistence.players.savePlayer(player);
     }
 
-    const activeShip = player.shipStable[player.activeShipId];
+    player = await this.syncCompletedShipBuilds(player);
+    const activeShip = this.resolveActiveShip(player);
     const map = this.runtime.maps[player.spawnPoint.mapId];
-    map.players[playerId] = {
-      id: asEntityId(`entity-${player.activeShipId}`),
-      playerId,
-      shipId: player.activeShipId,
-      mapId: player.spawnPoint.mapId,
-      position: { ...player.spawnPoint.position },
-      velocity: { x: 0, y: 0 },
-      rotation: 0,
-      angularVelocity: 0,
-      hull: activeShip.hullIntegrity,
-      maxHull: getHullDefinition(activeShip.hullId).baseHull,
-      power: 30,
-      maxPower: getHullDefinition(activeShip.hullId).powerCapacity,
-      modules: activeShip.modules,
-      inventory: { ...player.resourceCounts }
-    };
+    map.players[playerId] = this.createRuntimeShip(playerId, activeShip, player);
 
     this.sessions.set(playerId, {
       playerId,
@@ -89,6 +96,11 @@ export class GameWorld {
     const map = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
     if (player && map) {
       const ship = map.players[playerId];
+      const storedShip = player.shipStable[player.activeShipId];
+      if (storedShip) {
+        storedShip.modules = structuredClone(ship.modules);
+        storedShip.hullIntegrity = ship.hull;
+      }
       await this.persistence.players.savePlayer({
         ...player,
         resourceCounts: ship.inventory,
@@ -100,6 +112,7 @@ export class GameWorld {
       });
       delete map.players[playerId];
     }
+    await this.saveDirtyMaps();
     this.sessions.delete(playerId);
   }
 
@@ -168,7 +181,15 @@ export class GameWorld {
             };
             delete map.enemies[enemy.id];
           }
-        } else if (projectile.lifetimeMs <= 0) {
+          continue;
+        }
+
+        if (this.applyTerrainHit(map, projectile.position)) {
+          delete map.projectiles[projectile.id];
+          continue;
+        }
+
+        if (projectile.lifetimeMs <= 0) {
           delete map.projectiles[projectile.id];
         }
       }
@@ -203,6 +224,8 @@ export class GameWorld {
         }
       }
     }
+
+    void this.processShipBuildCompletions();
   }
 
   getSnapshot(rawPlayerId: string): SnapshotMessage {
@@ -225,7 +248,35 @@ export class GameWorld {
     return map.players[playerId];
   }
 
-  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: MoveInputMessage): void {
+  private createRuntimeShip(playerId: ReturnType<typeof asPlayerId>, ship: StoredShip, player: PlayerSave): PlayerShipState {
+    const hull = getHullDefinition(ship.hullId);
+    return {
+      id: asEntityId(`entity-${ship.id}`),
+      playerId,
+      shipId: ship.id,
+      mapId: player.spawnPoint.mapId,
+      position: { ...player.spawnPoint.position },
+      velocity: { x: 0, y: 0 },
+      rotation: 0,
+      angularVelocity: 0,
+      hull: ship.hullIntegrity,
+      maxHull: hull.baseHull,
+      power: 30,
+      maxPower: hull.powerCapacity,
+      modules: structuredClone(ship.modules),
+      inventory: { ...player.resourceCounts }
+    };
+  }
+
+  private resolveActiveShip(player: PlayerSave): StoredShip {
+    const activeShip = player.shipStable[player.activeShipId];
+    if (!activeShip) {
+      throw new Error(`Player ${player.playerId} is missing active ship ${player.activeShipId}.`);
+    }
+    return activeShip;
+  }
+
+  private applyMovementInput(player: PlayerShipState, input: MoveInputMessage): void {
     const thrustDirection = {
       x: input.aimWorld.x - player.position.x,
       y: input.aimWorld.y - player.position.y
@@ -242,9 +293,11 @@ export class GameWorld {
     }
   }
 
-  private fireWeapon(player: ReturnType<GameWorld["getPlayerShip"]>, message: FireWeaponMessage): void {
+  private fireWeapon(player: PlayerShipState, message: FireWeaponMessage): void {
     const map = this.runtime.maps[player.mapId];
-    const weapon = weaponDefinitions.find((entry) => entry.id === message.weaponHardpointId || entry.id === "pulse-cannon") ?? weaponDefinitions[0];
+    const installedModule = player.modules.find((entry) => entry.hardpointId === message.weaponHardpointId || entry.moduleId === message.weaponHardpointId);
+    const weaponId = installedModule?.moduleId ?? message.weaponHardpointId;
+    const weapon = weaponDefinitions.find((entry) => entry.id === weaponId) ?? weaponDefinitions[0];
     const direction = normalize({
       x: (message.targetWorld?.x ?? player.position.x + 1) - player.position.x,
       y: (message.targetWorld?.y ?? player.position.y) - player.position.y
@@ -271,12 +324,8 @@ export class GameWorld {
       return [];
     }
 
-    return [
-      {
-        type: "builderState",
-        availableShips: player.shipStable
-      }
-    ];
+    const synced = await this.syncCompletedShipBuilds(player);
+    return [this.createBuilderState(synced)];
   }
 
   private changeMap(playerId: ReturnType<typeof asPlayerId>, message: ChangeMapMessage): void {
@@ -301,17 +350,18 @@ export class GameWorld {
       return [];
     }
 
-    const playerSave = await this.persistence.players.getPlayer(this.worldId, playerId);
+    let playerSave = await this.persistence.players.getPlayer(this.worldId, playerId);
     if (!playerSave) {
       return [];
     }
+
+    playerSave = await this.syncCompletedShipBuilds(playerSave);
 
     if (message.action === "craftModule") {
       const definition = moduleDefinitions.find((entry) => entry.id === message.targetId);
       if (definition && hasEnoughResources(playerSave.resourceCounts, definition.buildCost)) {
         playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, definition.buildCost);
-        playerSave.updatedAt = Date.now();
-        await this.persistence.players.savePlayer(playerSave);
+        playerSave.craftedModules = this.addCraftedModule(playerSave.craftedModules, definition.id, 1);
       }
     }
 
@@ -326,26 +376,75 @@ export class GameWorld {
           hullId: hull.id,
           modules: [],
           hullIntegrity: hull.baseHull,
-          status: "building",
-          buildCompleteAt: Date.now() + hull.buildTimeMs
+          status: hull.buildTimeMs > 0 ? "building" : "stored",
+          buildCompleteAt: hull.buildTimeMs > 0 ? Date.now() + hull.buildTimeMs : null
         };
-        playerSave.updatedAt = Date.now();
-        await this.persistence.players.savePlayer(playerSave);
       }
     }
 
-    if (message.action === "swapShip" && playerSave.shipStable[message.targetId]) {
+    if (message.action === "swapShip" && playerSave.shipStable[message.targetId] && playerSave.shipStable[message.targetId].status !== "building") {
+      const currentShip = playerSave.shipStable[playerSave.activeShipId];
+      if (currentShip) {
+        currentShip.status = "stored";
+      }
       playerSave.activeShipId = asShipId(message.targetId);
-      playerSave.updatedAt = Date.now();
-      await this.persistence.players.savePlayer(playerSave);
+      playerSave.shipStable[message.targetId].status = "active";
+      this.syncRuntimeShipFromSave(playerId, playerSave);
     }
 
-    return [
-      {
-        type: "builderState",
-        availableShips: playerSave.shipStable
+    if (message.action === "installModule" && message.shipId && message.hardpointId) {
+      const ship = playerSave.shipStable[message.shipId];
+      const hull = ship ? getHullDefinition(ship.hullId) : null;
+      const moduleDefinition = moduleDefinitions.find((entry) => entry.id === message.targetId);
+      const hardpoint = hull?.hardpoints.find((entry) => entry.id === message.hardpointId);
+      const availableModule = playerSave.craftedModules.find((entry) => entry.moduleId === message.targetId && entry.quantity > 0);
+      if (ship && hull && moduleDefinition && hardpoint && availableModule && hardpoint.type === moduleDefinition.slotType) {
+        const existingModule = ship.modules.find((entry) => entry.hardpointId === message.hardpointId);
+        if (existingModule) {
+          playerSave.craftedModules = this.addCraftedModule(playerSave.craftedModules, existingModule.moduleId, 1);
+          ship.modules = ship.modules.filter((entry) => entry.hardpointId !== message.hardpointId);
+        }
+        ship.modules.push({
+          moduleId: moduleDefinition.id,
+          hardpointId: message.hardpointId,
+          currentHealth: moduleDefinition.maxHealth
+        });
+        playerSave.craftedModules = this.removeCraftedModule(playerSave.craftedModules, moduleDefinition.id, 1);
+        this.syncRuntimeShipFromSave(playerId, playerSave);
       }
-    ];
+    }
+
+    if (message.action === "removeModule" && message.shipId && message.hardpointId) {
+      const ship = playerSave.shipStable[message.shipId];
+      if (ship) {
+        const existingModule = ship.modules.find((entry) => entry.hardpointId === message.hardpointId);
+        if (existingModule) {
+          ship.modules = ship.modules.filter((entry) => entry.hardpointId !== message.hardpointId);
+          playerSave.craftedModules = this.addCraftedModule(playerSave.craftedModules, existingModule.moduleId, 1);
+          this.syncRuntimeShipFromSave(playerId, playerSave);
+        }
+      }
+    }
+
+    playerSave.updatedAt = Date.now();
+    await this.persistence.players.savePlayer(playerSave);
+    return [this.createBuilderState(playerSave)];
+  }
+
+  private syncRuntimeShipFromSave(playerId: ReturnType<typeof asPlayerId>, playerSave: PlayerSave): void {
+    const map = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
+    if (!map) {
+      return;
+    }
+    const runtimePlayer = map.players[playerId];
+    const activeShip = this.resolveActiveShip(playerSave);
+    const hull = getHullDefinition(activeShip.hullId);
+    runtimePlayer.shipId = activeShip.id;
+    runtimePlayer.modules = structuredClone(activeShip.modules);
+    runtimePlayer.hull = activeShip.hullIntegrity;
+    runtimePlayer.maxHull = hull.baseHull;
+    runtimePlayer.maxPower = hull.powerCapacity;
+    runtimePlayer.inventory = { ...playerSave.resourceCounts };
   }
 
   private isBuilderSiteNearby(playerId: ReturnType<typeof asPlayerId>): boolean {
@@ -355,5 +454,145 @@ export class GameWorld {
       (structure) => structure.structureTypeId === "builder-site" && distance(structure.position, player.position) < 48
     );
   }
-}
 
+  private createBuilderState(player: PlayerSave): ServerMessage {
+    return {
+      type: "builderState",
+      activeShipId: player.activeShipId,
+      availableShips: player.shipStable,
+      craftedModules: player.craftedModules
+    };
+  }
+
+  private addCraftedModule(stacks: CraftedModuleStack[], moduleId: string, quantity: number): CraftedModuleStack[] {
+    const nextStacks = stacks.map((entry) => ({ ...entry }));
+    const existing = nextStacks.find((entry) => entry.moduleId === moduleId);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      nextStacks.push({ moduleId, quantity });
+    }
+    return nextStacks.filter((entry) => entry.quantity > 0);
+  }
+
+  private removeCraftedModule(stacks: CraftedModuleStack[], moduleId: string, quantity: number): CraftedModuleStack[] {
+    return stacks
+      .map((entry) => (entry.moduleId === moduleId ? { ...entry, quantity: entry.quantity - quantity } : { ...entry }))
+      .filter((entry) => entry.quantity > 0);
+  }
+
+  private async syncCompletedShipBuilds(player: PlayerSave): Promise<PlayerSave> {
+    let changed = false;
+    for (const ship of Object.values(player.shipStable)) {
+      if (ship.status === "building" && ship.buildCompleteAt && ship.buildCompleteAt <= Date.now()) {
+        ship.status = ship.id === player.activeShipId ? "active" : "stored";
+        ship.buildCompleteAt = null;
+        changed = true;
+      }
+    }
+    if (changed) {
+      player.updatedAt = Date.now();
+      await this.persistence.players.savePlayer(player);
+    }
+    return player;
+  }
+
+  private async processShipBuildCompletions(): Promise<void> {
+    for (const session of this.sessions.values()) {
+      const player = await this.persistence.players.getPlayer(this.worldId, session.playerId);
+      if (!player) {
+        continue;
+      }
+      const beforeActiveShipId = player.activeShipId;
+      const synced = await this.syncCompletedShipBuilds(player);
+      if (beforeActiveShipId !== synced.activeShipId) {
+        this.syncRuntimeShipFromSave(session.playerId, synced);
+      }
+    }
+  }
+
+  private worldToTile(position: { x: number; y: number }): { chunkKey: string; chunkX: number; chunkY: number; cellIndex: number } | null {
+    const tileX = Math.floor(position.x / 32);
+    const tileY = Math.floor(position.y / 32);
+    if (tileX < 0 || tileY < 0) {
+      return null;
+    }
+    const chunkX = Math.floor(tileX / CHUNK_SIZE);
+    const chunkY = Math.floor(tileY / CHUNK_SIZE);
+    const localX = tileX % CHUNK_SIZE;
+    const localY = tileY % CHUNK_SIZE;
+    return {
+      chunkKey: `${chunkX},${chunkY}`,
+      chunkX,
+      chunkY,
+      cellIndex: localY * CHUNK_SIZE + localX
+    };
+  }
+
+  private applyTerrainHit(map: ActiveMapState, position: { x: number; y: number }): boolean {
+    const tile = this.worldToTile(position);
+    if (!tile) {
+      return false;
+    }
+    const chunk = map.chunks[tile.chunkKey];
+    if (!chunk) {
+      return false;
+    }
+    const currentValue = chunk.cells[tile.cellIndex] ?? 0;
+    if (currentValue === 0) {
+      return false;
+    }
+
+    chunk.cells[tile.cellIndex] = 0;
+    chunk.dirty = true;
+    map.drops[`terrain-${tile.chunkKey}-${tile.cellIndex}-${this.tickCounter}`] = {
+      id: asEntityId(`terrain-${tile.chunkKey}-${tile.cellIndex}-${this.tickCounter}`),
+      mapId: map.id,
+      position: { x: position.x, y: position.y },
+      resources: currentValue === 1 ? { ferrite: 2 } : { ferrite: 1, "plasma-crystal": 1 }
+    };
+    void this.persistence.maps.saveMapState(this.worldId, this.serializeMapState(map.id));
+    return true;
+  }
+
+  private applyPersistedMapState(mapId: string, persisted: PersistedMapState): void {
+    const runtimeMap = this.runtime.maps[mapId];
+    if (!runtimeMap) {
+      return;
+    }
+    for (const delta of persisted.chunkDeltas) {
+      const chunk = runtimeMap.chunks[delta.chunkKey];
+      if (!chunk) {
+        continue;
+      }
+      for (const cell of delta.changedCells) {
+        chunk.cells[cell.index] = cell.value;
+      }
+      chunk.dirty = false;
+    }
+  }
+
+  private serializeMapState(mapId: string): PersistedMapState {
+    const runtimeMap = this.runtime.maps[mapId];
+    const summary = this.persistentWorld.maps[mapId];
+    const chunkDeltas: ChunkDelta[] = Object.entries(runtimeMap.chunks).map(([chunkKey, chunk]) => ({
+      chunkKey,
+      changedCells: chunk.cells.map((value, index) => ({ index, value }))
+    }));
+    return {
+      map: summary,
+      chunkDeltas
+    };
+  }
+
+  private async saveDirtyMaps(): Promise<void> {
+    for (const [mapId, map] of Object.entries(this.runtime.maps)) {
+      if (Object.values(map.chunks).some((chunk) => chunk.dirty)) {
+        await this.persistence.maps.saveMapState(this.worldId, this.serializeMapState(mapId));
+        for (const chunk of Object.values(map.chunks)) {
+          chunk.dirty = false;
+        }
+      }
+    }
+  }
+}
