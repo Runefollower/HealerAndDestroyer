@@ -1,20 +1,39 @@
 import { Graphics, Text, type Container } from "pixi.js";
 import type { SnapshotMessage } from "@healer/shared";
 
-export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage): void {
+export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized: boolean): void {
   const inventoryEntries = Object.entries(snapshot.inventory)
     .map(([resource, amount]) => `${resource}: ${amount}`)
     .join("<br/>");
+
+  hud.classList.toggle("minimized", minimized);
+
+  if (minimized) {
+    hud.innerHTML = `
+      <div class="hud-header">
+        <p class="panel-title">Mission HUD</p>
+        <button class="hud-toggle" type="button" data-action="toggle-hud">Expand</button>
+      </div>
+      <div>Map: ${snapshot.mapId}</div>
+    `;
+    return;
+  }
+
   hud.innerHTML = `
-    <p class="panel-title">Mission HUD</p>
-    <div>Map: ${snapshot.mapId}</div>
-    <div>Players nearby: ${snapshot.players.length}</div>
-    <div>Enemies nearby: ${snapshot.enemies.length}</div>
-    <div>Foundries nearby: ${snapshot.foundries.length}</div>
-    <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
-    <div>Deeper path unlocked: ${snapshot.deeperPathUnlocked ? "yes" : "destroy the foundry"}</div>
-    <div>${inventoryEntries}</div>
-    <div>Controls: WASD move, left click weapon, right click mine, space repair, E interact</div>
+    <div class="hud-header">
+      <p class="panel-title">Mission HUD</p>
+      <button class="hud-toggle" type="button" data-action="toggle-hud">Minimize</button>
+    </div>
+    <div class="hud-body">
+      <div>Map: ${snapshot.mapId}</div>
+      <div>Players nearby: ${snapshot.players.length}</div>
+      <div>Enemies nearby: ${snapshot.enemies.length}</div>
+      <div>Foundries nearby: ${snapshot.foundries.length}</div>
+      <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
+      <div>Deeper path unlocked: ${snapshot.deeperPathUnlocked ? "yes" : "destroy the foundry"}</div>
+      <div>${inventoryEntries}</div>
+      <div>Controls: WASD move, left click weapon, right click mine, space repair, E interact</div>
+    </div>
   `;
 }
 

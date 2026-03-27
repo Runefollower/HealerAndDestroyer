@@ -20,6 +20,16 @@ function createChunk(fill: number): number[] {
   return Array.from({ length: CHUNK_SIZE * CHUNK_SIZE }, (_, index) => (index % 7 === 0 ? fill : 0));
 }
 
+function createChunkGrid(widthInChunks: number, heightInChunks: number, fill: number): ActiveMapState["chunks"] {
+  return Object.fromEntries(
+    Array.from({ length: widthInChunks * heightInChunks }, (_, index) => {
+      const chunkX = index % widthInChunks;
+      const chunkY = Math.floor(index / widthInChunks);
+      return [`${chunkX},${chunkY}`, { chunkX, chunkY, cells: createChunk(fill), dirty: false, active: true }];
+    })
+  );
+}
+
 function createRootConnection(): MapConnection {
   return {
     id: asConnectionId("conn-root-depth-1"),
@@ -105,12 +115,9 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
     [rootMapId]: {
       id: rootMapId,
       seed: "root-seed",
-      width: 64,
-      height: 64,
-      chunks: {
-        "0,0": { chunkX: 0, chunkY: 0, cells: createChunk(1), dirty: false, active: true },
-        "1,0": { chunkX: 1, chunkY: 0, cells: createChunk(1), dirty: false, active: true }
-      },
+      width: 128,
+      height: 128,
+      chunks: createChunkGrid(4, 2, 1),
       players: {},
       enemies: {
         "enemy-root-1": {
@@ -149,10 +156,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       seed: "depth-seed",
       width: 64,
       height: 64,
-      chunks: {
-        "0,0": { chunkX: 0, chunkY: 0, cells: createChunk(2), dirty: false, active: true },
-        "1,0": { chunkX: 1, chunkY: 0, cells: createChunk(2), dirty: false, active: true }
-      },
+      chunks: createChunkGrid(2, 1, 2),
       players: {},
       enemies: {},
       projectiles: {},

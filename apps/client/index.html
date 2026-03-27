@@ -36,6 +36,28 @@
         min-width: 220px;
       }
 
+      #hud.minimized {
+        min-width: 180px;
+      }
+
+      .hud-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .hud-toggle {
+        padding: 6px 10px;
+        margin: 0;
+        font-size: 0.78rem;
+      }
+
+      .hud-body {
+        display: grid;
+        gap: 6px;
+      }
+
       #builder {
         position: fixed;
         right: 16px;
@@ -87,5 +109,4 @@
     <div id="builder"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
-  </html>
-
+</html>

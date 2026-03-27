@@ -28,6 +28,24 @@ export async function bootstrapClient(): Promise<void> {
   window.addEventListener("mousemove", (event) => {
     mouseWorld = { x: event.clientX, y: event.clientY };
   });
+  hud.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const toggleButton = target.closest<HTMLElement>("[data-action='toggle-hud']");
+    if (!toggleButton) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    store.hudMinimized = !store.hudMinimized;
+    if (store.latestSnapshot) {
+      renderHud(hud, store.latestSnapshot, store.hudMinimized);
+    }
+  });
 
   network.onServerMessage((message) => {
     const nextOffset = handleServerMessage(network, builder, hud, worldLayer, store, message, clockOffsetMs);
@@ -116,7 +134,7 @@ function handleServerMessage(
 
   if (message.type === "snapshot") {
     store.latestSnapshot = message;
-    renderHud(hud, message);
+    renderHud(hud, message, store.hudMinimized);
     renderWorld(worldLayer, message);
     builder.classList.toggle("visible", message.builderSiteNearby || !!store.builderState);
   }
