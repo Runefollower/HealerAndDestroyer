@@ -5,6 +5,7 @@ export const moduleDefinitions: ModuleDefinition[] = [
     id: "starter-thruster",
     name: "Starter Thruster",
     slotType: "engine",
+    capabilities: ["passive"],
     mass: 10,
     powerUse: 4,
     maxHealth: 30,
@@ -16,39 +17,58 @@ export const moduleDefinitions: ModuleDefinition[] = [
     id: "pulse-cannon",
     name: "Pulse Cannon",
     slotType: "weapon",
+    capabilities: ["weapon"],
     mass: 12,
     powerUse: 8,
     maxHealth: 24,
     rarity: "basic",
     buildCost: { ferrite: 10 },
-    craftTimeMs: 0
+    craftTimeMs: 0,
+    weapon: {
+      weaponId: "pulse-cannon"
+    }
   },
   {
     id: "mining-laser",
     name: "Mining Laser",
     slotType: "utility",
+    capabilities: ["mining"],
     mass: 8,
     powerUse: 6,
     maxHealth: 20,
     rarity: "basic",
     buildCost: { ferrite: 12 },
-    craftTimeMs: 0
+    craftTimeMs: 0,
+    mining: {
+      range: 96,
+      terrainDamage: 1,
+      cooldownMs: 180,
+      yieldMultiplier: 1.2
+    }
   },
   {
     id: "repair-beam",
     name: "Repair Beam",
     slotType: "support",
+    capabilities: ["support"],
     mass: 9,
     powerUse: 7,
     maxHealth: 20,
     rarity: "basic",
     buildCost: { ferrite: 15, "plasma-crystal": 4 },
-    craftTimeMs: 0
+    craftTimeMs: 0,
+    support: {
+      range: 96,
+      repairAmount: 12,
+      cooldownMs: 400,
+      allowSelfTarget: true
+    }
   },
   {
     id: "reactive-plating",
     name: "Reactive Plating",
     slotType: "armor",
+    capabilities: ["passive"],
     mass: 15,
     powerUse: 0,
     maxHealth: 36,
@@ -65,14 +85,5 @@ export const weaponDefinitions: WeaponDefinition[] = [
     damage: 25,
     range: 220,
     cooldownMs: 300
-  },
-  {
-    id: "mining-laser",
-    name: "Mining Laser",
-    damage: 5,
-    range: 80,
-    cooldownMs: 150
   }
 ];
-
-

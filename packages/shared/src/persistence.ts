@@ -1,4 +1,4 @@
-import type { ConnectionId, MapId, PlayerId, ShipId, WorldId } from "./ids.js";
+import type { ConnectionId, EntityId, MapId, PlayerId, ShipId, WorldId } from "./ids.js";
 import type { InstalledModule } from "./content.js";
 import type { ResourceMap } from "./resources.js";
 import type { Vec2, Vec2i } from "./math.js";
@@ -19,7 +19,8 @@ export interface StoredShip {
   hullId: string;
   modules: InstalledModule[];
   hullIntegrity: number;
-  status: "stored" | "active" | "building";
+  status: "ready" | "active" | "building";
+  buildStartedAt?: number | null;
   buildCompleteAt?: number | null;
 }
 
@@ -80,7 +81,27 @@ export interface ChunkDelta {
   changedCells: Array<{ index: number; value: number }>;
 }
 
+export interface PersistedStructureState {
+  id: EntityId;
+  structureTypeId: string;
+  position: Vec2;
+  health: number;
+  maxHealth: number;
+  buildState: "planned" | "building" | "active" | "destroyed";
+}
+
+export interface PersistedFoundryState extends PersistedStructureState {
+  spawnCooldownMs: number;
+  spawnCap: number;
+  lastSpawnAt: number;
+  activeEnemyCount: number;
+  active: boolean;
+  destroyedAt?: number | null;
+}
+
 export interface PersistedMapState {
   map: PersistentMapSummary;
   chunkDeltas: ChunkDelta[];
+  structures: PersistedStructureState[];
+  foundries: PersistedFoundryState[];
 }

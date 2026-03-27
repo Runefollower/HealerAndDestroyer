@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { asPlayerId } from "@healer/shared";
 import { GameWorld } from "./gameWorld.js";
 
 describe("GameWorld", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-26T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("spawns a player into the persistent starter world", async () => {
     const world = new GameWorld();
     await world.initialize();
@@ -11,7 +21,7 @@ describe("GameWorld", () => {
     expect(world.getSnapshot("player-1").players).toHaveLength(1);
   });
 
-  it("mines terrain and restores the edited chunk state on reload", async () => {
+  it("requires a mining tool for terrain mining and persists chunk edits on reload", async () => {
     const world = new GameWorld();
     await world.initialize();
     await world.connectPlayer("player-1");
@@ -23,15 +33,21 @@ describe("GameWorld", () => {
 
     await world.handleMessage("player-1", {
       type: "fireWeapon",
-      weaponHardpointId: "mining-laser",
+      weaponHardpointId: "weapon-front",
       targetWorld: { x: 16, y: 16 },
       tick: 1
     });
-
     for (let index = 0; index < 20; index += 1) {
       world.tick();
     }
+    expect(map.chunks["0,0"].cells[0]).toBe(beforeCell);
 
+    await world.handleMessage("player-1", {
+      type: "activateModule",
+      moduleId: "mining-laser",
+      targetWorld: { x: 16, y: 16 },
+      tick: 2
+    });
     expect(map.chunks["0,0"].cells[0]).toBe(0);
 
     const reloadedWorld = new GameWorld(world.persistence);
@@ -39,90 +55,129 @@ describe("GameWorld", () => {
     expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[0]).toBe(0);
   });
 
-  it("applies movement, combat, and salvage flow", async () => {
+  it("tracks ship build timers, blocks unfinished swaps, and allows support activation on a completed support ship", async () => {
     const world = new GameWorld();
     await world.initialize();
     await world.connectPlayer("player-1");
 
-    await world.handleMessage("player-1", {
-      type: "moveInput",
-      thrustForward: true,
-      thrustReverse: false,
-      rotateLeft: false,
-      rotateRight: false,
-      aimWorld: { x: 180, y: 64 },
-      tick: 1
+    const playerId = asPlayerId("player-1");
+    const save = await world.persistence.players.getPlayer(world.worldId, playerId);
+    if (!save) {
+      throw new Error("Expected player save.");
+    }
+    save.resourceCounts = { ferrite: 200, "plasma-crystal": 50 };
+    await world.persistence.players.savePlayer(save);
+
+    const rootMap = world.runtime.maps["map-root"];
+    rootMap.players["player-1"].position = { x: 96, y: 96 };
+
+    const buildResponse = await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "startShipBuild",
+      targetId: "warden-healer"
     });
+    if (buildResponse[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response.");
+    }
+    const buildingShip = buildResponse[0].ships.find((ship) => ship.ship.hullId === "warden-healer");
+    expect(buildingShip?.ship.status).toBe("building");
+    expect(buildingShip?.remainingBuildMs).toBeGreaterThan(0);
+
+    await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "swapShip",
+      targetId: String(buildingShip?.shipId)
+    });
+    expect((await world.persistence.players.getPlayer(world.worldId, playerId))?.activeShipId).not.toBe(buildingShip?.shipId);
+
+    vi.setSystemTime(Date.now() + 46_000);
     world.tick();
 
-    const before = world.getSnapshot("player-1").players[0].position.x;
-    expect(before).toBeGreaterThan(64);
-
-    const runtimeMap = world.runtime.maps["map-root"];
-    runtimeMap.enemies["enemy-1"].position = { x: before + 5, y: 64 };
+    const readyResponse = await world.handleMessage("player-1", { type: "interact" });
+    if (readyResponse[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response after completion.");
+    }
+    const readyShip = readyResponse[0].ships.find((ship) => ship.ship.hullId === "warden-healer");
+    expect(readyShip?.ship.status).toBe("ready");
 
     await world.handleMessage("player-1", {
-      type: "fireWeapon",
-      weaponHardpointId: "pulse-cannon",
-      targetWorld: { x: before + 10, y: 64 },
-      tick: 2
+      type: "builderAction",
+      action: "swapShip",
+      targetId: String(readyShip?.shipId)
+    });
+    await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "craftModule",
+      targetId: "repair-beam"
+    });
+    await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "installModule",
+      targetId: "repair-beam",
+      shipId: String(readyShip?.shipId),
+      hardpointId: "support-top"
     });
 
-    for (let index = 0; index < 6; index += 1) {
-      world.tick();
-    }
+    rootMap.players["player-1"].hull = 80;
+    const selfEntityId = world.getSnapshot("player-1").players.find((player) => player.playerId === asPlayerId("player-1"))?.id;
+    await world.handleMessage("player-1", {
+      type: "activateModule",
+      moduleId: "repair-beam",
+      targetEntityId: String(selfEntityId),
+      tick: 3
+    });
 
-    const snapshot = world.getSnapshot("player-1");
-    expect(snapshot.inventory.ferrite).toBeGreaterThan(25);
-    expect(runtimeMap.enemies["enemy-1"]).toBeUndefined();
+    expect(rootMap.players["player-1"].hull).toBeGreaterThan(80);
   });
 
-  it("supports builder crafting, install/remove, and map transition", async () => {
+  it("spawns foundry enemies, unlocks the deeper path after foundry destruction, and restores state after reconnect", async () => {
     const world = new GameWorld();
     await world.initialize();
     await world.connectPlayer("player-1");
 
     const rootMap = world.runtime.maps["map-root"];
-    rootMap.players["player-1"].position = { x: 96, y: 96 };
-
-    const builderResponses = await world.handleMessage("player-1", { type: "interact" });
-    expect(builderResponses[0]?.type).toBe("builderState");
-
-    const crafted = await world.handleMessage("player-1", {
-      type: "builderAction",
-      action: "craftModule",
-      targetId: "starter-thruster"
-    });
-    expect(crafted[0]?.type).toBe("builderState");
-    if (crafted[0]?.type !== "builderState") {
-      throw new Error("Expected builder state response.");
-    }
-    expect(crafted[0].craftedModules.some((entry) => entry.moduleId === "starter-thruster")).toBe(true);
-
-    const installed = await world.handleMessage("player-1", {
-      type: "builderAction",
-      action: "installModule",
-      targetId: "starter-thruster",
-      shipId: String(crafted[0].activeShipId),
-      hardpointId: "engine-rear"
-    });
-    expect(installed[0]?.type).toBe("builderState");
-
-    const buildNewShip = await world.handleMessage("player-1", {
-      type: "builderAction",
-      action: "startShipBuild",
-      targetId: "warden-healer"
-    });
-    expect(buildNewShip[0]?.type).toBe("builderState");
+    const initialEnemyCount = Object.keys(rootMap.enemies).length;
+    expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(false);
 
     await world.handleMessage("player-1", {
       type: "changeMap",
       connectionId: "conn-root-depth-1"
     });
+    expect(world.getSnapshot("player-1").mapId).toBe("map-root");
 
-    expect(world.getSnapshot("player-1").mapId).toBe("map-depth-1");
+    const foundry = Object.values(rootMap.foundries)[0];
+    foundry.lastSpawnAt = Date.now() - foundry.spawnCooldownMs - 1;
+    world.tick();
+    expect(Object.keys(rootMap.enemies).length).toBeGreaterThan(initialEnemyCount);
+    expect(foundry.activeEnemyCount).toBeLessThanOrEqual(foundry.spawnCap);
+
+    foundry.health = 20;
+    rootMap.players["player-1"].position = { x: foundry.position.x - 8, y: foundry.position.y };
+    await world.handleMessage("player-1", {
+      type: "fireWeapon",
+      weaponHardpointId: "weapon-front",
+      targetWorld: { x: foundry.position.x, y: foundry.position.y },
+      tick: 10
+    });
+    for (let index = 0; index < 5; index += 1) {
+      world.tick();
+    }
+
+    expect(foundry.buildState).toBe("destroyed");
+    expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(true);
+
+    await world.disconnectPlayer("player-1");
+
+    const reloadedWorld = new GameWorld(world.persistence);
+    await reloadedWorld.initialize();
+    await reloadedWorld.connectPlayer("player-1");
+
+    expect(Object.values(reloadedWorld.runtime.maps["map-root"].foundries)[0]?.buildState).toBe("destroyed");
+
+    await reloadedWorld.handleMessage("player-1", {
+      type: "changeMap",
+      connectionId: "conn-root-depth-1"
+    });
+    expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
   });
 });
-
-
-

@@ -7,6 +7,7 @@ import {
   asShipId,
   asWorldId,
   type ActiveMapState,
+  type FoundryState,
   type MapConnection,
   type PersistentWorld,
   type PlayerSave,
@@ -19,18 +20,42 @@ function createChunk(fill: number): number[] {
   return Array.from({ length: CHUNK_SIZE * CHUNK_SIZE }, (_, index) => (index % 7 === 0 ? fill : 0));
 }
 
-export function createWorldGraph(worldId = asWorldId("world-alpha")): PersistentWorld {
-  const rootMapId = asMapId("map-root");
-  const deeperMapId = asMapId("map-depth-1");
-  const connection: MapConnection = {
+function createRootConnection(): MapConnection {
+  return {
     id: asConnectionId("conn-root-depth-1"),
-    sourceMapId: rootMapId,
+    sourceMapId: asMapId("map-root"),
     sourceAnchor: { x: 7, y: 3 },
-    destinationMapId: deeperMapId,
+    destinationMapId: asMapId("map-depth-1"),
     destinationAnchor: { x: 1, y: 6 },
     type: "tunnel",
     discovered: true
   };
+}
+
+function createFoundryState(): FoundryState {
+  const foundry = structureDefinitions.find((entry) => entry.id === "enemy-foundry");
+  return {
+    id: asEntityId("foundry-root-1"),
+    mapId: asMapId("map-root"),
+    ownerType: "enemy",
+    structureTypeId: foundry?.id ?? "enemy-foundry",
+    position: { x: 320, y: 180 },
+    health: foundry?.maxHealth ?? 350,
+    maxHealth: foundry?.maxHealth ?? 350,
+    buildState: "active",
+    spawnCooldownMs: 3000,
+    spawnCap: 3,
+    lastSpawnAt: Date.now(),
+    activeEnemyCount: 1,
+    active: true,
+    destroyedAt: null
+  };
+}
+
+export function createWorldGraph(worldId = asWorldId("world-alpha")): PersistentWorld {
+  const rootMapId = asMapId("map-root");
+  const deeperMapId = asMapId("map-depth-1");
+  const connection = createRootConnection();
 
   return {
     id: worldId,
@@ -71,19 +96,10 @@ export function createWorldGraph(worldId = asWorldId("world-alpha")): Persistent
 export function createActiveMaps(): Record<string, ActiveMapState> {
   const rootMapId = asMapId("map-root");
   const deeperMapId = asMapId("map-depth-1");
-  const connection: MapConnection = {
-    id: asConnectionId("conn-root-depth-1"),
-    sourceMapId: rootMapId,
-    sourceAnchor: { x: 7, y: 3 },
-    destinationMapId: deeperMapId,
-    destinationAnchor: { x: 1, y: 6 },
-    type: "tunnel",
-    discovered: true
-  };
-
+  const connection = createRootConnection();
   const builderSite = structureDefinitions.find((entry) => entry.id === "builder-site");
-  const foundry = structureDefinitions.find((entry) => entry.id === "enemy-foundry");
   const scoutEnemy = enemyDefinitions[0];
+  const rootFoundry = createFoundryState();
 
   return {
     [rootMapId]: {
@@ -97,8 +113,8 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       },
       players: {},
       enemies: {
-        "enemy-1": {
-          id: asEntityId("enemy-1"),
+        "enemy-root-1": {
+          id: asEntityId("enemy-root-1"),
           mapId: rootMapId,
           enemyTypeId: scoutEnemy.id,
           position: { x: 280, y: 160 },
@@ -106,7 +122,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
           rotation: 0,
           health: scoutEnemy.maxHealth,
           aiState: "idle",
-          sourceFoundryId: asEntityId("structure-foundry")
+          sourceFoundryId: rootFoundry.id
         }
       },
       projectiles: {},
@@ -120,17 +136,10 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
           health: builderSite?.maxHealth ?? 500,
           maxHealth: builderSite?.maxHealth ?? 500,
           buildState: "active"
-        },
-        "structure-foundry": {
-          id: asEntityId("structure-foundry"),
-          mapId: rootMapId,
-          ownerType: "enemy",
-          structureTypeId: foundry?.id ?? "enemy-foundry",
-          position: { x: 320, y: 180 },
-          health: foundry?.maxHealth ?? 350,
-          maxHealth: foundry?.maxHealth ?? 350,
-          buildState: "active"
         }
+      },
+      foundries: {
+        [rootFoundry.id]: rootFoundry
       },
       drops: {},
       connections: [connection]
@@ -148,6 +157,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       enemies: {},
       projectiles: {},
       structures: {},
+      foundries: {},
       drops: {},
       connections: [connection]
     }
@@ -173,7 +183,9 @@ export function createDefaultPlayerSave(worldId: string, playerId: string): Play
           { moduleId: "mining-laser", hardpointId: "utility-belly", currentHealth: 20 }
         ],
         hullIntegrity: 100,
-        status: "active"
+        status: "active",
+        buildStartedAt: null,
+        buildCompleteAt: null
       }
     },
     activeShipId: shipId,

@@ -22,6 +22,8 @@ export type HardpointType =
   | "structural"
   | "cargo";
 
+export type ModuleCapability = "weapon" | "mining" | "support" | "passive";
+
 export interface HardpointDefinition {
   id: string;
   type: HardpointType;
@@ -41,16 +43,38 @@ export interface HullDefinition {
   hardpoints: HardpointDefinition[];
 }
 
+export interface WeaponModuleConfig {
+  weaponId: string;
+}
+
+export interface MiningModuleConfig {
+  range: number;
+  terrainDamage: number;
+  cooldownMs: number;
+  yieldMultiplier: number;
+}
+
+export interface SupportModuleConfig {
+  range: number;
+  repairAmount: number;
+  cooldownMs: number;
+  allowSelfTarget: boolean;
+}
+
 export interface ModuleDefinition {
   id: string;
   name: string;
   slotType: HardpointType;
+  capabilities: ModuleCapability[];
   mass: number;
   powerUse: number;
   maxHealth: number;
   rarity: "basic" | "improved" | "advanced" | "rare";
   buildCost: ResourceMap;
   craftTimeMs: number;
+  weapon?: WeaponModuleConfig;
+  mining?: MiningModuleConfig;
+  support?: SupportModuleConfig;
 }
 
 export interface WeaponDefinition {
@@ -88,4 +112,3 @@ export interface InstalledModule {
   hardpointId: string;
   currentHealth: number;
 }
-

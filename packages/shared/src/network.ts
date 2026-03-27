@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { EntityId, MapId, PlayerId } from "./ids.js";
-import type { PlayerSave } from "./persistence.js";
+import type { EntityId, MapId, PlayerId, ShipId } from "./ids.js";
+import type { InstalledModule } from "./content.js";
+import type { PlayerSave, StoredShip } from "./persistence.js";
 import type { ActiveMapState, PlayerShipState } from "./world.js";
 import type { ResourceMap } from "./resources.js";
 
@@ -22,6 +23,14 @@ export const moveInputSchema = z.object({
 export const fireWeaponSchema = z.object({
   type: z.literal("fireWeapon"),
   weaponHardpointId: z.string(),
+  targetWorld: vec2Schema.optional(),
+  targetEntityId: z.string().optional(),
+  tick: z.number().int().nonnegative()
+});
+
+export const activateModuleSchema = z.object({
+  type: z.literal("activateModule"),
+  moduleId: z.string(),
   targetWorld: vec2Schema.optional(),
   targetEntityId: z.string().optional(),
   tick: z.number().int().nonnegative()
@@ -53,6 +62,7 @@ export const joinWorldSchema = z.object({
 export const clientMessageSchema = z.discriminatedUnion("type", [
   moveInputSchema,
   fireWeaponSchema,
+  activateModuleSchema,
   interactSchema,
   changeMapSchema,
   builderActionSchema,
@@ -61,6 +71,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
 
 export type MoveInputMessage = z.infer<typeof moveInputSchema>;
 export type FireWeaponMessage = z.infer<typeof fireWeaponSchema>;
+export type ActivateModuleMessage = z.infer<typeof activateModuleSchema>;
 export type InteractMessage = z.infer<typeof interactSchema>;
 export type ChangeMapMessage = z.infer<typeof changeMapSchema>;
 export type BuilderActionMessage = z.infer<typeof builderActionSchema>;
@@ -94,6 +105,17 @@ export interface StructureSnapshot {
   structureTypeId: string;
   position: { x: number; y: number };
   health: number;
+  buildState: string;
+}
+
+export interface FoundrySnapshot {
+  id: EntityId;
+  position: { x: number; y: number };
+  health: number;
+  active: boolean;
+  spawnCooldownMs: number;
+  spawnCap: number;
+  activeEnemyCount: number;
 }
 
 export interface DropSnapshot {
@@ -118,10 +140,13 @@ export interface SnapshotMessage {
   enemies: EnemySnapshot[];
   projectiles: ProjectileSnapshot[];
   structures: StructureSnapshot[];
+  foundries: FoundrySnapshot[];
   drops: DropSnapshot[];
   chunks: ChunkSnapshot[];
   inventory: ResourceMap;
+  selfModules: InstalledModule[];
   builderSiteNearby: boolean;
+  deeperPathUnlocked: boolean;
 }
 
 export interface JoinedWorldMessage {
@@ -129,10 +154,17 @@ export interface JoinedWorldMessage {
   player: PlayerSave;
 }
 
+export interface BuilderShipState {
+  shipId: ShipId;
+  ship: StoredShip;
+  remainingBuildMs: number;
+}
+
 export interface BuilderStateMessage {
   type: "builderState";
+  serverTime: number;
   activeShipId: PlayerSave["activeShipId"];
-  availableShips: PlayerSave["shipStable"];
+  ships: BuilderShipState[];
   craftedModules: PlayerSave["craftedModules"];
 }
 
@@ -144,7 +176,8 @@ export function createSnapshotMessage(
   mapId: MapId,
   map: ActiveMapState,
   self: PlayerShipState,
-  builderSiteNearby: boolean
+  builderSiteNearby: boolean,
+  deeperPathUnlocked: boolean
 ): SnapshotMessage {
   return {
     type: "snapshot",
@@ -174,7 +207,17 @@ export function createSnapshotMessage(
       id: structure.id,
       structureTypeId: structure.structureTypeId,
       position: structure.position,
-      health: structure.health
+      health: structure.health,
+      buildState: structure.buildState
+    })),
+    foundries: Object.values(map.foundries).map((foundry) => ({
+      id: foundry.id,
+      position: foundry.position,
+      health: foundry.health,
+      active: foundry.active,
+      spawnCooldownMs: foundry.spawnCooldownMs,
+      spawnCap: foundry.spawnCap,
+      activeEnemyCount: foundry.activeEnemyCount
     })),
     drops: Object.values(map.drops).map((drop) => ({
       id: drop.id,
@@ -188,6 +231,8 @@ export function createSnapshotMessage(
       cells: [...chunk.cells]
     })),
     inventory: self.inventory,
-    builderSiteNearby
+    selfModules: structuredClone(self.modules),
+    builderSiteNearby,
+    deeperPathUnlocked
   };
 }

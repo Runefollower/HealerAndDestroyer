@@ -50,15 +50,22 @@ class PostgresMapRepository implements MapRepository {
     }
 
     return {
-      map: row.payload as PersistedMapState["map"],
-      chunkDeltas: (row.chunk_deltas as PersistedMapState["chunkDeltas"]) ?? []
+      map: row.payload.map as PersistedMapState["map"],
+      chunkDeltas: (row.chunk_deltas as PersistedMapState["chunkDeltas"]) ?? [],
+      structures: (row.payload.structures as PersistedMapState["structures"]) ?? [],
+      foundries: (row.payload.foundries as PersistedMapState["foundries"]) ?? []
     };
   }
 
   async saveMapState(worldId: WorldId, mapState: PersistedMapState): Promise<void> {
     await this.pool.query(
       "insert into maps(world_id, map_id, payload, chunk_deltas) values ($1, $2, $3, $4) on conflict (world_id, map_id) do update set payload = excluded.payload, chunk_deltas = excluded.chunk_deltas",
-      [worldId, mapState.map.id, mapState.map, mapState.chunkDeltas]
+      [
+        worldId,
+        mapState.map.id,
+        { map: mapState.map, structures: mapState.structures, foundries: mapState.foundries },
+        mapState.chunkDeltas
+      ]
     );
   }
 }

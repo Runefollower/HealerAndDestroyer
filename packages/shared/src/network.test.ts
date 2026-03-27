@@ -45,12 +45,14 @@ describe("network schemas", () => {
             power: 10,
             maxPower: 10,
             modules: [],
-            inventory: { ferrite: 5 }
+            inventory: { ferrite: 5 },
+            moduleCooldowns: {}
           }
         },
         enemies: {},
         projectiles: {},
         structures: {},
+        foundries: {},
         drops: {},
         connections: []
       },
@@ -68,13 +70,16 @@ describe("network schemas", () => {
         power: 10,
         maxPower: 10,
         modules: [],
-        inventory: { ferrite: 5 }
+        inventory: { ferrite: 5 },
+        moduleCooldowns: {}
       },
-      true
+      true,
+      false
     );
 
     expect(snapshot.players).toHaveLength(1);
     expect(snapshot.builderSiteNearby).toBe(true);
     expect(snapshot.chunks).toHaveLength(1);
+    expect(snapshot.selfModules).toHaveLength(0);
   });
 });

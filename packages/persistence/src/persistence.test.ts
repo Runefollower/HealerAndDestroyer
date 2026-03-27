@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryPersistence } from "./memory.js";
-import { asMapId, asPlayerId, asShipId, asWorldId } from "@healer/shared";
+import { asEntityId, asMapId, asPlayerId, asShipId, asWorldId } from "@healer/shared";
 
 describe("in-memory persistence", () => {
-  it("restores player, ship, and crafted module state", async () => {
+  it("restores player, ship, crafted module, and foundry state", async () => {
     const persistence = createInMemoryPersistence();
     const worldId = asWorldId("world-1");
     const playerId = asPlayerId("player-1");
@@ -21,7 +21,9 @@ describe("in-memory persistence", () => {
           hullId: "sparrow-scout",
           modules: [],
           hullIntegrity: 100,
-          status: "active"
+          status: "active",
+          buildStartedAt: null,
+          buildCompleteAt: null
         }
       },
       activeShipId: shipId,
@@ -42,7 +44,33 @@ describe("in-memory persistence", () => {
         connectionIds: [],
         lastActivatedAt: Date.now()
       },
-      chunkDeltas: [{ chunkKey: "0,0", changedCells: [{ index: 0, value: 0 }] }]
+      chunkDeltas: [{ chunkKey: "0,0", changedCells: [{ index: 0, value: 0 }] }],
+      structures: [
+        {
+          id: asEntityId("builder-1"),
+          structureTypeId: "builder-site",
+          position: { x: 10, y: 10 },
+          health: 500,
+          maxHealth: 500,
+          buildState: "active"
+        }
+      ],
+      foundries: [
+        {
+          id: asEntityId("foundry-1"),
+          structureTypeId: "enemy-foundry",
+          position: { x: 20, y: 20 },
+          health: 350,
+          maxHealth: 350,
+          buildState: "active",
+          spawnCooldownMs: 3000,
+          spawnCap: 3,
+          lastSpawnAt: Date.now(),
+          activeEnemyCount: 1,
+          active: true,
+          destroyedAt: null
+        }
+      ]
     });
 
     const restored = await persistence.players.getPlayer(worldId, playerId);
@@ -50,5 +78,6 @@ describe("in-memory persistence", () => {
     expect(restored?.activeShipId).toBe(shipId);
     expect(restored?.craftedModules[0]?.moduleId).toBe("repair-beam");
     expect(restoredMap?.chunkDeltas[0]?.chunkKey).toBe("0,0");
+    expect(restoredMap?.foundries[0]?.structureTypeId).toBe("enemy-foundry");
   });
 });

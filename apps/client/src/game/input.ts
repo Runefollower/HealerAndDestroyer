@@ -4,6 +4,8 @@ export interface InputState {
   rotateLeft: boolean;
   rotateRight: boolean;
   firePrimary: boolean;
+  activateUtility: boolean;
+  activateSupport: boolean;
 }
 
 export function createInputState(): InputState {
@@ -12,7 +14,9 @@ export function createInputState(): InputState {
     thrustReverse: false,
     rotateLeft: false,
     rotateRight: false,
-    firePrimary: false
+    firePrimary: false,
+    activateUtility: false,
+    activateSupport: false
   };
 }
 
@@ -23,6 +27,7 @@ export function attachInputListeners(input: InputState): void {
     if (event.key === "a") input.rotateLeft = true;
     if (event.key === "d") input.rotateRight = true;
     if (event.key === "e") window.dispatchEvent(new CustomEvent("builder-interact"));
+    if (event.key === " ") input.activateSupport = true;
   });
 
   window.addEventListener("keyup", (event) => {
@@ -30,14 +35,26 @@ export function attachInputListeners(input: InputState): void {
     if (event.key === "s") input.thrustReverse = false;
     if (event.key === "a") input.rotateLeft = false;
     if (event.key === "d") input.rotateRight = false;
+    if (event.key === " ") input.activateSupport = false;
   });
 
-  window.addEventListener("mousedown", () => {
-    input.firePrimary = true;
+  window.addEventListener("contextmenu", (event) => event.preventDefault());
+
+  window.addEventListener("mousedown", (event) => {
+    if (event.button === 0) {
+      input.firePrimary = true;
+    }
+    if (event.button === 2) {
+      input.activateUtility = true;
+    }
   });
 
-  window.addEventListener("mouseup", () => {
-    input.firePrimary = false;
+  window.addEventListener("mouseup", (event) => {
+    if (event.button === 0) {
+      input.firePrimary = false;
+    }
+    if (event.button === 2) {
+      input.activateUtility = false;
+    }
   });
 }
-

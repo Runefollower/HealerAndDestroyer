@@ -49,10 +49,19 @@ export function validateContent(): void {
     if (!compatibleHull) {
       throw new Error(`Module ${module.id} has no compatible starter hull.`);
     }
+
+    if (module.capabilities.includes("weapon") && !module.weapon) {
+      throw new Error(`Module ${module.id} is missing weapon config.`);
+    }
+    if (module.capabilities.includes("mining") && !module.mining) {
+      throw new Error(`Module ${module.id} is missing mining config.`);
+    }
+    if (module.capabilities.includes("support") && !module.support) {
+      throw new Error(`Module ${module.id} is missing support config.`);
+    }
   }
 
-  if (enemyDefinitions.length < 2 || structureDefinitions.length < 1 || resourceDefinitions.length < 2 || weaponDefinitions.length < 2) {
+  if (enemyDefinitions.length < 2 || structureDefinitions.length < 1 || resourceDefinitions.length < 2 || weaponDefinitions.length < 1) {
     throw new Error("Content seed set is incomplete.");
   }
 }
-

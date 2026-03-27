@@ -29,6 +29,7 @@ export interface PlayerShipState {
   maxPower: number;
   modules: InstalledModule[];
   inventory: ResourceMap;
+  moduleCooldowns: Record<string, number>;
 }
 
 export interface EnemyState {
@@ -64,6 +65,15 @@ export interface StructureState {
   buildState: "planned" | "building" | "active" | "destroyed";
 }
 
+export interface FoundryState extends StructureState {
+  spawnCooldownMs: number;
+  spawnCap: number;
+  lastSpawnAt: number;
+  activeEnemyCount: number;
+  active: boolean;
+  destroyedAt?: number | null;
+}
+
 export interface LootDropState {
   id: EntityId;
   mapId: MapId;
@@ -83,6 +93,7 @@ export interface ActiveMapState {
   enemies: Record<string, EnemyState>;
   projectiles: Record<string, ProjectileState>;
   structures: Record<string, StructureState>;
+  foundries: Record<string, FoundryState>;
   drops: Record<string, LootDropState>;
   connections: MapConnection[];
 }
@@ -92,4 +103,3 @@ export interface WorldRuntimeState {
   activeMapId: MapId;
   maps: Record<string, ActiveMapState>;
 }
-
