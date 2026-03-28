@@ -55,6 +55,53 @@ describe("GameWorld", () => {
     expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[0]).toBe(0);
   });
 
+  it("uses freshly collected runtime resources for builder actions before disconnect", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const playerId = asPlayerId("player-1");
+    const save = await world.persistence.players.getPlayer(world.worldId, playerId);
+    if (!save) {
+      throw new Error("Expected player save.");
+    }
+    save.resourceCounts = { ferrite: 0, "plasma-crystal": 0 };
+    await world.persistence.players.savePlayer(save);
+
+    const rootMap = world.runtime.maps["map-root"];
+    const runtimePlayer = rootMap.players["player-1"];
+    runtimePlayer.inventory = { ferrite: 0, "plasma-crystal": 0 };
+    runtimePlayer.position = { x: 96, y: 96 };
+    rootMap.drops["test-drop"] = {
+      id: "test-drop" as never,
+      mapId: rootMap.id,
+      position: { x: 96, y: 96 },
+      resources: { ferrite: 80, "plasma-crystal": 20 }
+    };
+
+    await world.tick();
+
+    const refreshedSave = await world.persistence.players.getPlayer(world.worldId, playerId);
+    expect(runtimePlayer.inventory).toEqual({ ferrite: 80, "plasma-crystal": 20 });
+    expect(refreshedSave?.resourceCounts).toEqual({ ferrite: 80, "plasma-crystal": 20 });
+
+    const buildResponse = await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "startShipBuild",
+      targetId: "warden-healer"
+    });
+    if (buildResponse[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response.");
+    }
+
+    const buildingShip = buildResponse[0].ships.find((ship) => ship.ship.hullId === "warden-healer");
+    expect(buildingShip?.ship.status).toBe("building");
+
+    const spentSave = await world.persistence.players.getPlayer(world.worldId, playerId);
+    expect(spentSave?.resourceCounts).toEqual({ ferrite: 0, "plasma-crystal": 0 });
+    expect(rootMap.players["player-1"].inventory).toEqual({ ferrite: 0, "plasma-crystal": 0 });
+  });
+
   it("tracks ship build timers, emits completion updates, and allows support activation on a completed support ship", async () => {
     const world = new GameWorld();
     await world.initialize();
@@ -69,6 +116,7 @@ describe("GameWorld", () => {
     await world.persistence.players.savePlayer(save);
 
     const rootMap = world.runtime.maps["map-root"];
+    rootMap.players["player-1"].inventory = { ferrite: 200, "plasma-crystal": 50 };
     rootMap.players["player-1"].position = { x: 96, y: 96 };
 
     const buildResponse = await world.handleMessage("player-1", {
@@ -191,3 +239,4 @@ describe("GameWorld", () => {
     expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
   });
 });
+

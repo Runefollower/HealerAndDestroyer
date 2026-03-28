@@ -53,6 +53,27 @@ export function syncRuntimeShipFromSave(runtimePlayer: PlayerShipState, playerSa
   runtimePlayer.inventory = { ...playerSave.resourceCounts };
 }
 
+export function syncRuntimeInventoryFromSave(runtimePlayer: PlayerShipState, playerSave: PlayerSave): void {
+  runtimePlayer.inventory = { ...playerSave.resourceCounts };
+}
+
+export function syncPlayerSaveFromRuntime(runtimePlayer: PlayerShipState, playerSave: PlayerSave): PlayerSave {
+  playerSave.resourceCounts = { ...runtimePlayer.inventory };
+
+  const activeShip = playerSave.shipStable[playerSave.activeShipId];
+  if (activeShip) {
+    activeShip.modules = structuredClone(runtimePlayer.modules);
+    activeShip.hullIntegrity = runtimePlayer.hull;
+  }
+
+  playerSave.spawnPoint = {
+    mapId: runtimePlayer.mapId,
+    position: { ...runtimePlayer.position }
+  };
+
+  return playerSave;
+}
+
 export function createBuilderState(player: PlayerSave, now: number): BuilderStateMessage {
   return {
     type: "builderState",

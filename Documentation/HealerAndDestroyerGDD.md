@@ -2323,6 +2323,19 @@ interface SelectShipMessage {
 - serialization-safe data types
 - math helpers and content references
 
+### 32.4 Server Logging Levels
+The server should support three runtime logging tiers configured by an environment variable such as `LOG_LEVEL`.
+
+Recommended logging levels:
+- `normal`: startup, shutdown, player connection and disconnection, ship-build acceptance and rejection, player death, and other important state changes that should appear during routine operation
+- `verbose`: resource pickup events, including what was collected and the player's updated inventory totals after the pickup
+- `very-verbose`: high-churn diagnostic messages used for debugging runtime and persistence synchronization, such as inventory hydration from live runtime state into saved player state and immediate persistence writes after pickup events
+
+Logging goal:
+- keep `normal` readable during ordinary development and playtesting
+- use `verbose` when tracing gameplay resource flow
+- use `very-verbose` only when diagnosing synchronization or replication issues that would otherwise overwhelm normal logs
+
 ---
 
 ## 33. Security and Fairness

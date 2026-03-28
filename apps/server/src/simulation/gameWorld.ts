@@ -30,7 +30,7 @@ import { tickFoundries, applyFoundryDamage, isDeeperPathUnlocked, refreshFoundry
 import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
-import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncRuntimeShipFromSave } from "./shipLifecycle.js";
+import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncPlayerSaveFromRuntime, syncRuntimeInventoryFromSave, syncRuntimeShipFromSave } from "./shipLifecycle.js";
 
 interface PlayerSessionState {
   playerId: ReturnType<typeof asPlayerId>;
@@ -173,7 +173,7 @@ export class GameWorld {
       this.tickPlayers(map, deltaSeconds);
       this.tickProjectiles(map, deltaMs);
       this.tickEnemies(map, deltaSeconds);
-      this.collectDrops(map);
+      await this.collectDrops(map);
       tickFoundries(map, now, () => `enemy-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`);
     }
 
@@ -265,19 +265,39 @@ export class GameWorld {
       enemy.position.y += enemy.velocity.y * deltaSeconds;
 
       if (distance(enemy.position, nearestPlayer.position) < 18) {
+        const previousHull = nearestPlayer.hull;
         nearestPlayer.hull = Math.max(0, nearestPlayer.hull - 4);
+        if (previousHull > 0 && nearestPlayer.hull === 0) {
+          logger.info("Player ship destroyed", {
+            playerId: nearestPlayer.playerId,
+            mapId: nearestPlayer.mapId,
+            enemyId: enemy.id,
+            enemyTypeId: enemy.enemyTypeId,
+            position: nearestPlayer.position
+          });
+        }
       }
     }
     refreshFoundryEnemyCounts(map);
   }
 
-  private collectDrops(map: ActiveMapState): void {
+  private async collectDrops(map: ActiveMapState): Promise<void> {
     for (const [dropId, drop] of Object.entries(map.drops)) {
       const collector = Object.values(map.players).find((entry) => distance(entry.position, drop.position) < 16);
-      if (collector) {
-        collector.inventory = addResourceMaps(collector.inventory, drop.resources);
-        delete map.drops[dropId];
+      if (!collector) {
+        continue;
       }
+
+      collector.inventory = addResourceMaps(collector.inventory, drop.resources);
+      logger.verbose("Resource pickup", {
+        playerId: collector.playerId,
+        mapId: collector.mapId,
+        dropId,
+        pickedUp: drop.resources,
+        updatedInventory: collector.inventory
+      });
+      delete map.drops[dropId];
+      await this.syncRuntimeInventoryToPersistence(collector.playerId);
     }
   }
 
@@ -335,7 +355,8 @@ export class GameWorld {
     }
 
     const synced = syncCompletedShipBuilds(player, now).player;
-    return [createBuilderState(synced, now)];
+    const hydrated = await this.syncPlayerSaveWithRuntime(playerId, synced);
+    return [createBuilderState(hydrated, now)];
   }
 
   private changeMap(playerId: ReturnType<typeof asPlayerId>, message: ChangeMapMessage): void {
@@ -383,12 +404,17 @@ export class GameWorld {
     }
 
     playerSave = syncCompletedShipBuilds(playerSave, now).player;
+    playerSave = await this.syncPlayerSaveWithRuntime(playerId, playerSave);
+    const runtimeMap = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
+    const runtimePlayer = runtimeMap?.players[playerId];
+    let resourcesChanged = false;
 
     if (message.action === "craftModule") {
       const definition = moduleDefinitions.find((entry) => entry.id === message.targetId);
       if (definition && hasEnoughResources(playerSave.resourceCounts, definition.buildCost)) {
         playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, definition.buildCost);
         playerSave.craftedModules = this.addCraftedModule(playerSave.craftedModules, definition.id, 1);
+        resourcesChanged = true;
       }
     }
 
@@ -417,6 +443,7 @@ export class GameWorld {
         });
       } else {
         playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, hull.buildCost);
+        resourcesChanged = true;
         const builtShipId = asShipId(`ship-${message.targetId}-${Date.now()}`);
         const buildCompleteAt = hull.buildTimeMs > 0 ? now + hull.buildTimeMs : null;
         playerSave.shipStable[builtShipId] = {
@@ -492,9 +519,46 @@ export class GameWorld {
       }
     }
 
+    if (resourcesChanged && runtimePlayer) {
+      syncRuntimeInventoryFromSave(runtimePlayer, playerSave);
+    }
+
     playerSave.updatedAt = now;
     await this.persistence.players.savePlayer(playerSave);
     return [createBuilderState(playerSave, now)];
+  }
+
+  private async syncPlayerSaveWithRuntime(playerId: ReturnType<typeof asPlayerId>, playerSave: PlayerSave): Promise<PlayerSave> {
+    const runtimeMap = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
+    const runtimePlayer = runtimeMap?.players[playerId];
+    if (!runtimePlayer) {
+      return playerSave;
+    }
+
+    const synced = syncPlayerSaveFromRuntime(runtimePlayer, playerSave);
+    logger.veryVerbose("Hydrated player save from runtime", {
+      playerId,
+      mapId: runtimePlayer.mapId,
+      resourceCounts: synced.resourceCounts,
+      activeShipId: synced.activeShipId
+    });
+    return synced;
+  }
+
+  private async syncRuntimeInventoryToPersistence(playerId: ReturnType<typeof asPlayerId>): Promise<void> {
+    const playerSave = await this.persistence.players.getPlayer(this.worldId, playerId);
+    if (!playerSave) {
+      return;
+    }
+
+    const synced = await this.syncPlayerSaveWithRuntime(playerId, playerSave);
+    synced.updatedAt = Date.now();
+    await this.persistence.players.savePlayer(synced);
+    logger.veryVerbose("Persisted runtime inventory", {
+      playerId,
+      resourceCounts: synced.resourceCounts,
+      updatedAt: synced.updatedAt
+    });
   }
 
   private isBuilderSiteNearby(playerId: ReturnType<typeof asPlayerId>): boolean {
