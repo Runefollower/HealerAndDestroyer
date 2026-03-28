@@ -46,6 +46,7 @@ export class GameWorld {
   readonly runtime: WorldRuntimeState;
   private readonly sessions = new Map<string, PlayerSessionState>();
   private readonly pendingMessages = new Map<string, ServerMessage[]>();
+  private readonly feedbackTimestamps = new Map<string, Map<string, number>>();
   private tickCounter = 0;
   private persistentWorld: PersistentWorld = createWorldGraph(this.worldId);
 
@@ -124,6 +125,7 @@ export class GameWorld {
     await this.saveAllMaps();
     this.sessions.delete(playerId);
     this.pendingMessages.delete(playerId);
+    this.feedbackTimestamps.delete(playerId);
   }
 
   async handleMessage(rawPlayerId: string, message: unknown): Promise<ServerMessage[]> {
@@ -235,7 +237,22 @@ export class GameWorld {
         continue;
       }
 
-      if (applyFoundryDamage(map, projectile.position, projectile.damage, this.tickCounter)) {
+      const foundryDamage = applyFoundryDamage(map, projectile.position, projectile.damage, this.tickCounter);
+      if (foundryDamage.hit) {
+        if (foundryDamage.destroyedFoundry) {
+          const unlocked = map.id === "map-root" && isDeeperPathUnlocked(this.runtime.maps["map-root"]);
+          this.queueMapFeedback(
+            map.id,
+            unlocked ? "deeper_path_unlocked" : "foundry_destroyed",
+            unlocked ? "Deeper Path Unlocked" : "Foundry Destroyed",
+            unlocked
+              ? "The root foundry is down. The deeper route is now open."
+              : "Enemy production has been disrupted in this sector.",
+            "info",
+            true
+          );
+          void this.persistence.maps.saveMapState(this.worldId, serializeMapState(map, this.persistentWorld.maps[map.id]));
+        }
         delete map.projectiles[projectile.id];
         continue;
       }
@@ -333,14 +350,22 @@ export class GameWorld {
 
   private fireWeapon(player: ReturnType<GameWorld["getPlayerShip"]>, message: FireWeaponMessage, now: number): void {
     const map = this.runtime.maps[player.mapId];
-    applyWeaponFire(map, player, message, now, () => asEntityId(`projectile-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`));
+    const result = applyWeaponFire(map, player, message, now, () => asEntityId(`projectile-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`));
+    if (!result.ok && result.code !== "weapon_on_cooldown") {
+      this.queueAttemptFailure(player.playerId, result.code, now);
+    }
   }
 
   private activateModule(player: ReturnType<GameWorld["getPlayerShip"]>, message: ActivateModuleMessage, now: number): void {
     const map = this.runtime.maps[player.mapId];
-    const activated = activateInstalledModule(map, player, message, now, this.tickCounter);
-    if (activated) {
+    const result = activateInstalledModule(map, player, message, now, this.tickCounter);
+    if (result.ok) {
       void this.persistence.maps.saveMapState(this.worldId, serializeMapState(map, this.persistentWorld.maps[map.id]));
+      return;
+    }
+
+    if (result.code !== "module_on_cooldown") {
+      this.queueAttemptFailure(player.playerId, result.code, now);
     }
   }
 
@@ -364,9 +389,11 @@ export class GameWorld {
     const player = sourceMap.players[playerId];
     const connection = sourceMap.connections.find((entry) => entry.id === message.connectionId);
     if (!connection?.destinationMapId) {
+      this.queueActionFeedback(playerId, "map_connection_missing", "Route Unavailable", "That navigation route is no longer available.", "warning", Date.now(), 1200);
       return;
     }
     if (sourceMap.id === "map-root" && !isDeeperPathUnlocked(this.runtime.maps["map-root"])) {
+      this.queueActionFeedback(playerId, "deeper_path_locked", "Path Locked", "Destroy the root foundry to unlock the deeper route.", "info", Date.now(), 1500);
       return;
     }
     const destinationMap = this.runtime.maps[connection.destinationMapId];
@@ -615,6 +642,98 @@ export class GameWorld {
     this.pendingMessages.set(playerId, existing);
   }
 
+  private queueActionFeedback(
+    playerId: ReturnType<typeof asPlayerId>,
+    code: string,
+    title: string,
+    detail: string,
+    level: "info" | "warning",
+    now: number,
+    throttleMs = 1200,
+    force = false
+  ): void {
+    const timestamps = this.feedbackTimestamps.get(playerId) ?? new Map<string, number>();
+    const lastSentAt = timestamps.get(code) ?? 0;
+    if (!force && now - lastSentAt < throttleMs) {
+      this.feedbackTimestamps.set(playerId, timestamps);
+      return;
+    }
+
+    timestamps.set(code, now);
+    this.feedbackTimestamps.set(playerId, timestamps);
+    this.queueMessage(playerId, {
+      type: "actionFeedback",
+      serverTime: now,
+      level,
+      code,
+      title,
+      detail
+    });
+  }
+
+  private queueMapFeedback(
+    mapId: string,
+    code: string,
+    title: string,
+    detail: string,
+    level: "info" | "warning",
+    force = false
+  ): void {
+    const map = this.runtime.maps[mapId];
+    if (!map) {
+      return;
+    }
+
+    const now = Date.now();
+    for (const player of Object.values(map.players)) {
+      this.queueActionFeedback(player.playerId, code, title, detail, level, now, 1200, force);
+    }
+  }
+
+  private queueAttemptFailure(playerId: ReturnType<typeof asPlayerId>, code: string, now: number): void {
+    switch (code) {
+      case "weapon_not_installed":
+        this.queueActionFeedback(playerId, code, "Weapon Offline", "No weapon is installed on the selected hardpoint.", "warning", now);
+        return;
+      case "weapon_capability_missing":
+        this.queueActionFeedback(playerId, code, "Weapon Offline", "The selected hardpoint is not carrying a weapon-capable module.", "warning", now);
+        return;
+      case "weapon_definition_missing":
+        this.queueActionFeedback(playerId, code, "Weapon Data Missing", "The selected weapon module is missing its weapon profile.", "warning", now);
+        return;
+      case "module_not_installed":
+        this.queueActionFeedback(playerId, code, "Module Offline", "That module is not installed on your active ship.", "warning", now);
+        return;
+      case "mining_target_missing":
+        this.queueActionFeedback(playerId, code, "Mining Target Missing", "Aim at a terrain tile to fire the mining laser.", "warning", now);
+        return;
+      case "mining_target_out_of_range":
+        this.queueActionFeedback(playerId, code, "Mining Out of Range", "Move closer before attempting to mine that tile.", "warning", now);
+        return;
+      case "no_terrain_to_mine":
+        this.queueActionFeedback(playerId, code, "No Ore Here", "That tile is already clear. Aim at intact terrain to mine resources.", "info", now);
+        return;
+      case "support_target_missing":
+        this.queueActionFeedback(playerId, code, "Repair Target Missing", "Pick a valid allied ship or yourself before activating the repair beam.", "warning", now);
+        return;
+      case "support_target_out_of_range":
+        this.queueActionFeedback(playerId, code, "Repair Out of Range", "Move closer to your ally before firing the repair beam.", "warning", now);
+        return;
+      case "support_self_target_forbidden":
+        this.queueActionFeedback(playerId, code, "Repair Denied", "That support module cannot target your own ship.", "warning", now);
+        return;
+      case "support_target_full_hull":
+        this.queueActionFeedback(playerId, code, "Hull Stable", "That ship is already at full hull integrity.", "info", now);
+        return;
+      case "module_capability_missing":
+        this.queueActionFeedback(playerId, code, "Module Offline", "The selected module cannot perform that action.", "warning", now);
+        return;
+      default:
+        this.queueActionFeedback(playerId, code, "Action Rejected", "The requested action could not be completed.", "warning", now);
+        return;
+    }
+  }
+
   private async saveAllMaps(): Promise<void> {
     for (const [mapId, map] of Object.entries(this.runtime.maps)) {
       await this.persistence.maps.saveMapState(this.worldId, serializeMapState(map, this.persistentWorld.maps[mapId]));
@@ -624,4 +743,8 @@ export class GameWorld {
     }
   }
 }
+
+
+
+
 

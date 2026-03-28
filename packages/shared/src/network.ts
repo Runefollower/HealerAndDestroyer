@@ -176,7 +176,21 @@ export interface ShipBuildCompletedMessage {
   hullId: string;
 }
 
-export type ServerMessage = SnapshotMessage | JoinedWorldMessage | BuilderStateMessage | ShipBuildCompletedMessage;
+export interface ActionFeedbackMessage {
+  type: "actionFeedback";
+  serverTime: number;
+  level: "info" | "warning";
+  code: string;
+  title: string;
+  detail: string;
+}
+
+export type ServerMessage =
+  | SnapshotMessage
+  | JoinedWorldMessage
+  | BuilderStateMessage
+  | ShipBuildCompletedMessage
+  | ActionFeedbackMessage;
 
 export function createSnapshotMessage(
   tick: number,
@@ -244,3 +258,4 @@ export function createSnapshotMessage(
     deeperPathUnlocked
   };
 }
+

@@ -1,16 +1,21 @@
 import { enemyDefinitions } from "@healer/content";
 import { asEntityId, distance, type ActiveMapState, type FoundryState } from "@healer/shared";
 
+export interface FoundryDamageResult {
+  hit: boolean;
+  destroyedFoundry?: FoundryState;
+}
+
 export function refreshFoundryEnemyCounts(map: ActiveMapState): void {
   for (const foundry of Object.values(map.foundries)) {
     foundry.activeEnemyCount = Object.values(map.enemies).filter((enemy) => enemy.sourceFoundryId === foundry.id).length;
   }
 }
 
-export function applyFoundryDamage(map: ActiveMapState, position: { x: number; y: number }, damage: number, tickCounter: number): boolean {
+export function applyFoundryDamage(map: ActiveMapState, position: { x: number; y: number }, damage: number, tickCounter: number): FoundryDamageResult {
   const foundry = Object.values(map.foundries).find((entry) => entry.active && distance(entry.position, position) < 20);
   if (!foundry) {
-    return false;
+    return { hit: false };
   }
 
   foundry.health = Math.max(0, foundry.health - damage);
@@ -24,8 +29,9 @@ export function applyFoundryDamage(map: ActiveMapState, position: { x: number; y
       position: { ...foundry.position },
       resources: { ferrite: 30, "plasma-crystal": 10 }
     };
+    return { hit: true, destroyedFoundry: foundry };
   }
-  return true;
+  return { hit: true };
 }
 
 export function tickFoundries(map: ActiveMapState, now: number, spawnIdFactory: () => string): void {

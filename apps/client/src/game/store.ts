@@ -1,10 +1,14 @@
 import type { ServerMessage, SnapshotMessage } from "@healer/shared";
 
+export type ToastTone = "info" | "warning" | "success";
+export type ModuleSelectionCapability = "weapon" | "mining" | "support";
+
 export interface UiToast {
   id: string;
   title: string;
   body: string;
   expiresAt: number;
+  tone: ToastTone;
 }
 
 export interface ClientStore {
@@ -13,6 +17,7 @@ export interface ClientStore {
   builderOpen: boolean;
   hudMinimized: boolean;
   toasts: UiToast[];
+  selectedModuleHardpoints: Record<ModuleSelectionCapability, string | null>;
 }
 
 export function createClientStore(): ClientStore {
@@ -21,6 +26,11 @@ export function createClientStore(): ClientStore {
     builderState: null,
     builderOpen: false,
     hudMinimized: false,
-    toasts: []
+    toasts: [],
+    selectedModuleHardpoints: {
+      weapon: null,
+      mining: null,
+      support: null
+    }
   };
 }

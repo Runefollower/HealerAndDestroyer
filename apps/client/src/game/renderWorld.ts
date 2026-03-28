@@ -1,10 +1,18 @@
 import { Graphics, Text, type Container } from "pixi.js";
 import type { SnapshotMessage } from "@healer/shared";
 
-export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized: boolean): void {
+export interface HudSelections {
+  weapon: string;
+  mining: string;
+  support: string;
+}
+
+export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized: boolean, selections: HudSelections): void {
   const inventoryEntries = Object.entries(snapshot.inventory)
     .map(([resource, amount]) => `${resource}: ${amount}`)
     .join("<br/>");
+  const objective = describeObjective(snapshot);
+  const foundryStatus = describeFoundryStatus(snapshot);
 
   hud.classList.toggle("minimized", minimized);
 
@@ -15,6 +23,7 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
         <button class="hud-toggle" type="button" data-action="toggle-hud">Expand</button>
       </div>
       <div>Map: ${snapshot.mapId}</div>
+      <div class="muted-copy">${objective}</div>
     `;
     return;
   }
@@ -25,14 +34,20 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
       <button class="hud-toggle" type="button" data-action="toggle-hud">Minimize</button>
     </div>
     <div class="hud-body">
+      <div><strong>Objective:</strong> ${objective}</div>
+      <div>${foundryStatus}</div>
       <div>Map: ${snapshot.mapId}</div>
       <div>Players nearby: ${snapshot.players.length}</div>
       <div>Enemies nearby: ${snapshot.enemies.length}</div>
       <div>Foundries nearby: ${snapshot.foundries.length}</div>
       <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
       <div>Deeper path unlocked: ${snapshot.deeperPathUnlocked ? "yes" : "destroy the foundry"}</div>
+      <div>Weapon slot: ${selections.weapon}</div>
+      <div>Mining slot: ${selections.mining}</div>
+      <div>Support slot: ${selections.support}</div>
       <div>${inventoryEntries}</div>
       <div>Controls: WASD move, left click weapon, right click mine, space repair, E interact</div>
+      <div>Selection: 1 cycle weapon, 2 cycle mining, 3 cycle support</div>
     </div>
   `;
 }
@@ -66,6 +81,13 @@ export function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): v
     const graphic = new Graphics();
     graphic.rect(foundry.position.x - 22, foundry.position.y - 22, 44, 44).fill(foundry.active ? 0xff7e6b : 0x5d6775);
     worldLayer.addChild(graphic);
+
+    const statusLabel = new Text({
+      text: foundry.active ? `Foundry ${foundry.health} HP` : "Foundry Down",
+      style: { fontSize: 12, fill: foundry.active ? 0xffd7cf : 0xb6c0cc }
+    });
+    statusLabel.position.set(foundry.position.x - 30, foundry.position.y - 38);
+    worldLayer.addChild(statusLabel);
   }
 
   for (const drop of snapshot.drops) {
@@ -92,4 +114,31 @@ export function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): v
     label.position.set(player.position.x - 12, player.position.y - 28);
     worldLayer.addChild(label);
   }
+}
+
+function describeObjective(snapshot: SnapshotMessage): string {
+  const activeFoundry = snapshot.foundries.find((foundry) => foundry.active);
+  if (!snapshot.deeperPathUnlocked) {
+    if (activeFoundry) {
+      return "Destroy the active enemy foundry to unlock the deeper route.";
+    }
+    return "Push through the root sector and locate the foundry objective.";
+  }
+
+  if (snapshot.mapId === "map-root") {
+    return "The deeper route is open. Move to the gate and descend when ready.";
+  }
+
+  return "Hold the deeper cavern, gather salvage, and keep the fleet supplied.";
+}
+
+function describeFoundryStatus(snapshot: SnapshotMessage): string {
+  const activeFoundry = snapshot.foundries.find((foundry) => foundry.active);
+  if (activeFoundry) {
+    return `Foundry integrity: ${activeFoundry.health} | defenders: ${activeFoundry.activeEnemyCount}/${activeFoundry.spawnCap}`;
+  }
+  if (snapshot.foundries.length > 0) {
+    return "Foundry status: destroyed";
+  }
+  return "Foundry status: none on this map";
 }

@@ -1,11 +1,11 @@
 import { getModuleDefinition } from "@healer/content";
 import { Application, Container } from "pixi.js";
-import type { InstalledModule, ServerMessage } from "@healer/shared";
+import type { InstalledModule, ServerMessage, SnapshotMessage } from "@healer/shared";
 import { attachInputListeners, createInputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
 import { refreshBuilderTimers, renderBuilderState } from "./renderBuilder.js";
-import { renderHud, renderWorld } from "./renderWorld.js";
-import { createClientStore, type UiToast } from "./store.js";
+import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
+import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
 
 export async function bootstrapClient(): Promise<void> {
   const app = new Application();
@@ -29,6 +29,24 @@ export async function bootstrapClient(): Promise<void> {
   window.addEventListener("mousemove", (event) => {
     mouseWorld = { x: event.clientX, y: event.clientY };
   });
+  window.addEventListener("keydown", (event) => {
+    if (event.repeat) {
+      return;
+    }
+
+    if (event.key === "1") {
+      cycleSelectedModule(store, "weapon");
+      renderHudForStore(hud, store);
+    }
+    if (event.key === "2") {
+      cycleSelectedModule(store, "mining");
+      renderHudForStore(hud, store);
+    }
+    if (event.key === "3") {
+      cycleSelectedModule(store, "support");
+      renderHudForStore(hud, store);
+    }
+  });
   hud.addEventListener("pointerdown", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) {
@@ -43,14 +61,12 @@ export async function bootstrapClient(): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
     store.hudMinimized = !store.hudMinimized;
-    if (store.latestSnapshot) {
-      renderHud(hud, store.latestSnapshot, store.hudMinimized);
-    }
+    renderHudForStore(hud, store);
   });
-  builder.addEventListener("mousedown", (event) => {
+  builder.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
   });
-  builder.addEventListener("mouseup", (event) => {
+  builder.addEventListener("pointerup", (event) => {
     event.stopPropagation();
   });
   builder.addEventListener("click", (event) => {
@@ -132,7 +148,7 @@ export async function bootstrapClient(): Promise<void> {
 
     const snapshot = store.latestSnapshot;
     if (snapshot) {
-      const weaponModule = findFirstModuleByCapability(snapshot.selfModules, "weapon");
+      const weaponModule = getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon);
       if (input.firePrimary && weaponModule && tick % 8 === 0) {
         network.send({
           type: "fireWeapon",
@@ -142,22 +158,22 @@ export async function bootstrapClient(): Promise<void> {
         });
       }
 
-      const miningModule = findFirstModuleByCapability(snapshot.selfModules, "mining");
+      const miningModule = getSelectedModuleByCapability(snapshot.selfModules, "mining", store.selectedModuleHardpoints.mining);
       if (input.activateUtility && miningModule && tick % 6 === 0) {
         network.send({
           type: "activateModule",
-          moduleId: miningModule.moduleId,
+          moduleId: miningModule.hardpointId,
           targetWorld: mouseWorld,
           tick
         });
       }
 
-      const supportModule = findFirstModuleByCapability(snapshot.selfModules, "support");
+      const supportModule = getSelectedModuleByCapability(snapshot.selfModules, "support", store.selectedModuleHardpoints.support);
       const selfEntity = snapshot.players.find((player) => player.playerId === snapshot.selfPlayerId);
       if (input.activateSupport && supportModule && selfEntity && tick % 10 === 0) {
         network.send({
           type: "activateModule",
-          moduleId: supportModule.moduleId,
+          moduleId: supportModule.hardpointId,
           targetEntityId: selfEntity.id,
           tick
         });
@@ -183,7 +199,7 @@ function handleServerMessage(
   hud: HTMLElement,
   notifications: HTMLElement,
   worldLayer: Container,
-  store: ReturnType<typeof createClientStore>,
+  store: ClientStore,
   message: ServerMessage,
   clockOffsetMs: number
 ): number | undefined {
@@ -203,10 +219,11 @@ function handleServerMessage(
         id: `${message.shipId}-${message.serverTime}`,
         title: "Ship Construction Complete",
         body: `${message.shipName} is ready in storage. Return to the builder site to swap or fit modules.`,
-        expiresAt: Date.now() + 7000
+        expiresAt: Date.now() + 7000,
+        tone: "success"
       },
       ...store.toasts
-    ].slice(0, 3);
+    ].slice(0, 4);
     renderToasts(notifications, store.toasts);
 
     if (store.builderOpen && store.latestSnapshot?.builderSiteNearby) {
@@ -215,9 +232,25 @@ function handleServerMessage(
     return clockOffsetMs;
   }
 
+  if (message.type === "actionFeedback") {
+    store.toasts = [
+      {
+        id: `${message.code}-${message.serverTime}`,
+        title: message.title,
+        body: message.detail,
+        expiresAt: Date.now() + (message.level === "warning" ? 3600 : 2600),
+        tone: message.level === "warning" ? "warning" : "info"
+      },
+      ...store.toasts
+    ].slice(0, 4);
+    renderToasts(notifications, store.toasts);
+    return clockOffsetMs;
+  }
+
   if (message.type === "snapshot") {
     store.latestSnapshot = message;
-    renderHud(hud, message, store.hudMinimized);
+    reconcileSelectedModules(store, message.selfModules);
+    renderHudForStore(hud, store);
     renderWorld(worldLayer, message);
     if (!message.builderSiteNearby) {
       store.builderOpen = false;
@@ -229,7 +262,7 @@ function handleServerMessage(
   return clockOffsetMs;
 }
 
-function syncBuilderVisibility(builder: HTMLElement, store: ReturnType<typeof createClientStore>): void {
+function syncBuilderVisibility(builder: HTMLElement, store: ClientStore): void {
   const nearby = !!store.latestSnapshot?.builderSiteNearby;
   const visible = nearby && store.builderOpen;
   builder.classList.toggle("visible", visible);
@@ -242,7 +275,7 @@ function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
   container.innerHTML = toasts
     .map(
       (toast) => `
-        <div class="toast">
+        <div class="toast ${toast.tone}">
           <p class="toast-title">${toast.title}</p>
           <p class="toast-body">${toast.body}</p>
         </div>
@@ -251,6 +284,71 @@ function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
     .join("");
 }
 
-function findFirstModuleByCapability(modules: InstalledModule[], capability: "weapon" | "mining" | "support") {
-  return modules.find((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes(capability));
+function renderHudForStore(hud: HTMLElement, store: ClientStore): void {
+  if (!store.latestSnapshot) {
+    return;
+  }
+
+  renderHud(hud, store.latestSnapshot, store.hudMinimized, describeSelectedModules(store.latestSnapshot, store));
+}
+
+function describeSelectedModules(snapshot: SnapshotMessage, store: ClientStore): HudSelections {
+  return {
+    weapon: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon)),
+    mining: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "mining", store.selectedModuleHardpoints.mining)),
+    support: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "support", store.selectedModuleHardpoints.support))
+  };
+}
+
+function formatSelectedModule(module: InstalledModule | undefined): string {
+  if (!module) {
+    return "offline";
+  }
+
+  const definition = getModuleDefinition(module.moduleId);
+  return `${definition.name} (${module.hardpointId})`;
+}
+
+function getSelectedModuleByCapability(
+  modules: InstalledModule[],
+  capability: ModuleSelectionCapability,
+  selectedHardpointId: string | null
+): InstalledModule | undefined {
+  const matchingModules = modules.filter((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes(capability));
+  if (!matchingModules.length) {
+    return undefined;
+  }
+
+  return matchingModules.find((installedModule) => installedModule.hardpointId === selectedHardpointId) ?? matchingModules[0];
+}
+
+function reconcileSelectedModules(store: ClientStore, modules: InstalledModule[]): void {
+  for (const capability of ["weapon", "mining", "support"] as const) {
+    const matchingModules = modules.filter((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes(capability));
+    const selectedHardpointId = store.selectedModuleHardpoints[capability];
+    if (!matchingModules.length) {
+      store.selectedModuleHardpoints[capability] = null;
+      continue;
+    }
+    if (!selectedHardpointId || !matchingModules.some((installedModule) => installedModule.hardpointId === selectedHardpointId)) {
+      store.selectedModuleHardpoints[capability] = matchingModules[0].hardpointId;
+    }
+  }
+}
+
+function cycleSelectedModule(store: ClientStore, capability: ModuleSelectionCapability): void {
+  const snapshot = store.latestSnapshot;
+  if (!snapshot) {
+    return;
+  }
+
+  const matchingModules = snapshot.selfModules.filter((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes(capability));
+  if (matchingModules.length < 2) {
+    return;
+  }
+
+  const currentHardpointId = store.selectedModuleHardpoints[capability];
+  const currentIndex = matchingModules.findIndex((installedModule) => installedModule.hardpointId === currentHardpointId);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % matchingModules.length : 0;
+  store.selectedModuleHardpoints[capability] = matchingModules[nextIndex].hardpointId;
 }

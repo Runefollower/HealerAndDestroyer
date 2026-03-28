@@ -55,6 +55,44 @@ describe("GameWorld", () => {
     expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[0]).toBe(0);
   });
 
+  it("queues throttled action feedback for locked routes and rejected module use", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    await world.handleMessage("player-1", {
+      type: "changeMap",
+      connectionId: "conn-root-depth-1"
+    });
+    expect(world.drainPendingMessages("player-1")).toContainEqual(
+      expect.objectContaining({
+        type: "actionFeedback",
+        code: "deeper_path_locked"
+      })
+    );
+
+    await world.handleMessage("player-1", {
+      type: "changeMap",
+      connectionId: "conn-root-depth-1"
+    });
+    expect(world.drainPendingMessages("player-1")).toEqual([]);
+
+    const map = world.runtime.maps["map-root"];
+    map.players["player-1"].position = { x: 48, y: 48 };
+    await world.handleMessage("player-1", {
+      type: "activateModule",
+      moduleId: "utility-belly",
+      targetWorld: { x: 480, y: 480 },
+      tick: 3
+    });
+    expect(world.drainPendingMessages("player-1")).toContainEqual(
+      expect.objectContaining({
+        type: "actionFeedback",
+        code: "mining_target_out_of_range"
+      })
+    );
+  });
+
   it("uses freshly collected runtime resources for builder actions before disconnect", async () => {
     const world = new GameWorld();
     await world.initialize();
@@ -223,6 +261,12 @@ describe("GameWorld", () => {
 
     expect(foundry.buildState).toBe("destroyed");
     expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(true);
+    expect(world.drainPendingMessages("player-1")).toContainEqual(
+      expect.objectContaining({
+        type: "actionFeedback",
+        code: "deeper_path_unlocked"
+      })
+    );
 
     await world.disconnectPlayer("player-1");
 
@@ -239,4 +283,5 @@ describe("GameWorld", () => {
     expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
   });
 });
+
 

@@ -2,6 +2,12 @@ import { getModuleDefinition, weaponDefinitions } from "@healer/content";
 import { distance, normalize, scaleVec2, type ActiveMapState, type ActivateModuleMessage, type EntityId, type FireWeaponMessage, type PlayerShipState } from "@healer/shared";
 import { mineTerrainAt } from "./terrain.js";
 
+export interface ActionAttemptResult {
+  ok: boolean;
+  code: string;
+  hardpointId?: string;
+}
+
 function isModuleReady(player: PlayerShipState, hardpointId: string, now: number): boolean {
   return (player.moduleCooldowns[hardpointId] ?? 0) <= now;
 }
@@ -24,20 +30,23 @@ export function applyWeaponFire(
   message: FireWeaponMessage,
   now: number,
   projectileIdFactory: () => EntityId
-): boolean {
+): ActionAttemptResult {
   const installedModule = findInstalledModule(player, message.weaponHardpointId);
   if (!installedModule) {
-    return false;
+    return { ok: false, code: "weapon_not_installed" };
   }
 
   const moduleDefinition = getModuleDefinition(installedModule.moduleId);
   if (!moduleDefinition.capabilities.includes("weapon") || !moduleDefinition.weapon) {
-    return false;
+    return { ok: false, code: "weapon_capability_missing", hardpointId: installedModule.hardpointId };
   }
 
   const weapon = weaponDefinitions.find((entry) => entry.id === moduleDefinition.weapon?.weaponId);
-  if (!weapon || !isModuleReady(player, installedModule.hardpointId, now)) {
-    return false;
+  if (!weapon) {
+    return { ok: false, code: "weapon_definition_missing", hardpointId: installedModule.hardpointId };
+  }
+  if (!isModuleReady(player, installedModule.hardpointId, now)) {
+    return { ok: false, code: "weapon_on_cooldown", hardpointId: installedModule.hardpointId };
   }
 
   const direction = normalize({
@@ -55,7 +64,7 @@ export function applyWeaponFire(
     lifetimeMs: weapon.cooldownMs * 3
   };
   markModuleUsed(player, installedModule.hardpointId, now + weapon.cooldownMs);
-  return true;
+  return { ok: true, code: "weapon_fired", hardpointId: installedModule.hardpointId };
 }
 
 export function activateInstalledModule(
@@ -64,26 +73,30 @@ export function activateInstalledModule(
   message: ActivateModuleMessage,
   now: number,
   tickCounter: number
-): boolean {
+): ActionAttemptResult {
   const installedModule = findInstalledModule(player, message.moduleId);
   if (!installedModule) {
-    return false;
+    return { ok: false, code: "module_not_installed" };
   }
 
   const moduleDefinition = getModuleDefinition(installedModule.moduleId);
   if (!isModuleReady(player, installedModule.hardpointId, now)) {
-    return false;
+    return { ok: false, code: "module_on_cooldown", hardpointId: installedModule.hardpointId };
   }
 
-  if (moduleDefinition.capabilities.includes("mining") && moduleDefinition.mining && message.targetWorld) {
+  if (moduleDefinition.capabilities.includes("mining") && moduleDefinition.mining) {
+    if (!message.targetWorld) {
+      return { ok: false, code: "mining_target_missing", hardpointId: installedModule.hardpointId };
+    }
     if (distance(player.position, message.targetWorld) > moduleDefinition.mining.range) {
-      return false;
+      return { ok: false, code: "mining_target_out_of_range", hardpointId: installedModule.hardpointId };
     }
     const mined = mineTerrainAt(map, message.targetWorld, tickCounter, moduleDefinition.mining.yieldMultiplier);
-    if (mined) {
-      markModuleUsed(player, installedModule.hardpointId, now + moduleDefinition.mining.cooldownMs);
+    if (!mined) {
+      return { ok: false, code: "no_terrain_to_mine", hardpointId: installedModule.hardpointId };
     }
-    return mined;
+    markModuleUsed(player, installedModule.hardpointId, now + moduleDefinition.mining.cooldownMs);
+    return { ok: true, code: "terrain_mined", hardpointId: installedModule.hardpointId };
   }
 
   if (moduleDefinition.capabilities.includes("support") && moduleDefinition.support) {
@@ -91,19 +104,21 @@ export function activateInstalledModule(
       ? Object.values(map.players).find((entry) => entry.id === message.targetEntityId)
       : player;
     if (!target) {
-      return false;
+      return { ok: false, code: "support_target_missing", hardpointId: installedModule.hardpointId };
     }
     if (target.playerId !== player.playerId && distance(player.position, target.position) > moduleDefinition.support.range) {
-      return false;
+      return { ok: false, code: "support_target_out_of_range", hardpointId: installedModule.hardpointId };
     }
     if (target.playerId === player.playerId && !moduleDefinition.support.allowSelfTarget) {
-      return false;
+      return { ok: false, code: "support_self_target_forbidden", hardpointId: installedModule.hardpointId };
+    }
+    if (target.hull >= target.maxHull) {
+      return { ok: false, code: "support_target_full_hull", hardpointId: installedModule.hardpointId };
     }
     target.hull = Math.min(target.maxHull, target.hull + moduleDefinition.support.repairAmount);
     markModuleUsed(player, installedModule.hardpointId, now + moduleDefinition.support.cooldownMs);
-    return true;
+    return { ok: true, code: "support_applied", hardpointId: installedModule.hardpointId };
   }
 
-  return false;
+  return { ok: false, code: "module_capability_missing", hardpointId: installedModule.hardpointId };
 }
-
