@@ -29,6 +29,7 @@ import { createDefaultPlayerSave, createRuntimeState, createWorldGraph } from ".
 import { tickFoundries, applyFoundryDamage, isDeeperPathUnlocked, refreshFoundryEnemyCounts } from "./foundries.js";
 import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
+import { createLogger } from "../logger.js";
 import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncRuntimeShipFromSave } from "./shipLifecycle.js";
 
 interface PlayerSessionState {
@@ -36,6 +37,8 @@ interface PlayerSessionState {
   connectedAt: number;
   lastInputTick: number;
 }
+
+const logger = createLogger("gameWorld");
 
 export class GameWorld {
   readonly persistence: PersistenceBundle;
@@ -357,11 +360,25 @@ export class GameWorld {
 
   private async handleBuilderAction(playerId: ReturnType<typeof asPlayerId>, message: BuilderActionMessage, now: number): Promise<ServerMessage[]> {
     if (!this.isBuilderSiteNearby(playerId)) {
+      if (message.action === "startShipBuild") {
+        logger.warn("Ship build request rejected", {
+          playerId,
+          hullId: message.targetId,
+          reason: "not_near_builder_site"
+        });
+      }
       return [];
     }
 
     let playerSave = await this.persistence.players.getPlayer(this.worldId, playerId);
     if (!playerSave) {
+      if (message.action === "startShipBuild") {
+        logger.warn("Ship build request rejected", {
+          playerId,
+          hullId: message.targetId,
+          reason: "player_save_missing"
+        });
+      }
       return [];
     }
 
@@ -376,10 +393,32 @@ export class GameWorld {
     }
 
     if (message.action === "startShipBuild") {
-      const hull = getHullDefinition(message.targetId);
-      if (hasEnoughResources(playerSave.resourceCounts, hull.buildCost)) {
+      let hull;
+      try {
+        hull = getHullDefinition(message.targetId);
+      } catch {
+        logger.warn("Ship build request rejected", {
+          playerId,
+          hullId: message.targetId,
+          reason: "unknown_hull"
+        });
+        playerSave.updatedAt = now;
+        await this.persistence.players.savePlayer(playerSave);
+        return [createBuilderState(playerSave, now)];
+      }
+
+      if (!hasEnoughResources(playerSave.resourceCounts, hull.buildCost)) {
+        logger.warn("Ship build request rejected", {
+          playerId,
+          hullId: hull.id,
+          reason: "insufficient_resources",
+          required: hull.buildCost,
+          available: playerSave.resourceCounts
+        });
+      } else {
         playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, hull.buildCost);
         const builtShipId = asShipId(`ship-${message.targetId}-${Date.now()}`);
+        const buildCompleteAt = hull.buildTimeMs > 0 ? now + hull.buildTimeMs : null;
         playerSave.shipStable[builtShipId] = {
           id: builtShipId,
           name: hull.name,
@@ -388,8 +427,15 @@ export class GameWorld {
           hullIntegrity: hull.baseHull,
           status: hull.buildTimeMs > 0 ? "building" : "ready",
           buildStartedAt: now,
-          buildCompleteAt: hull.buildTimeMs > 0 ? now + hull.buildTimeMs : null
+          buildCompleteAt
         };
+        logger.info("Ship build request accepted", {
+          playerId,
+          hullId: hull.id,
+          shipId: builtShipId,
+          status: playerSave.shipStable[builtShipId].status,
+          buildCompleteAt
+        });
       }
     }
 
@@ -514,3 +560,4 @@ export class GameWorld {
     }
   }
 }
+

@@ -1,11 +1,14 @@
 import { WebSocketServer, type WebSocket } from "ws";
-import { GameWorld } from "./simulation/gameWorld.js";
+import { createLogger } from "./logger.js";
 import type { ServerConfig } from "./config.js";
+import { GameWorld } from "./simulation/gameWorld.js";
 
 interface ClientConnection {
   socket: WebSocket;
   playerId: string | null;
 }
+
+const logger = createLogger("gameServer");
 
 export class GameServer {
   readonly world: GameWorld;
@@ -31,6 +34,11 @@ export class GameServer {
         if (message.type === "joinWorld") {
           connection.playerId = message.playerId;
           const player = await this.world.connectPlayer(message.playerId);
+          logger.info("Client connected", {
+            playerId: message.playerId,
+            mapId: player.spawnPoint.mapId,
+            clientCount: this.clients.size
+          });
           socket.send(JSON.stringify({ type: "joinedWorld", player }));
           return;
         }
@@ -49,7 +57,14 @@ export class GameServer {
         this.clients.delete(connection);
         if (connection.playerId) {
           await this.world.disconnectPlayer(connection.playerId);
+          logger.info("Client disconnected", {
+            playerId: connection.playerId,
+            clientCount: this.clients.size
+          });
+          return;
         }
+
+        logger.info("Anonymous client disconnected", { clientCount: this.clients.size });
       });
     });
 
