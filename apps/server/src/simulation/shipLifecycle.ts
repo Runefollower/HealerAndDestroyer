@@ -30,15 +30,15 @@ export function resolveActiveShip(player: PlayerSave): StoredShip {
   return activeShip;
 }
 
-export function syncCompletedShipBuilds(player: PlayerSave, now: number): { changed: boolean; player: PlayerSave } {
-  let changed = false;
+export function syncCompletedShipBuilds(player: PlayerSave, now: number): { changed: boolean; completedShips: StoredShip[]; player: PlayerSave } {
+  const completedShips: StoredShip[] = [];
   for (const ship of Object.values(player.shipStable)) {
     if (ship.status === "building" && ship.buildCompleteAt && ship.buildCompleteAt <= now) {
       ship.status = "ready";
-      changed = true;
+      completedShips.push(ship);
     }
   }
-  return { changed, player };
+  return { changed: completedShips.length > 0, completedShips, player };
 }
 
 export function syncRuntimeShipFromSave(runtimePlayer: PlayerShipState, playerSave: PlayerSave): void {

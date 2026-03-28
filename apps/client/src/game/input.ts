@@ -26,7 +26,7 @@ export function attachInputListeners(input: InputState): void {
     if (event.key === "s") input.thrustReverse = true;
     if (event.key === "a") input.rotateLeft = true;
     if (event.key === "d") input.rotateRight = true;
-    if (event.key === "e") window.dispatchEvent(new CustomEvent("builder-interact"));
+    if (event.key === "e" && !event.repeat) window.dispatchEvent(new CustomEvent("builder-interact"));
     if (event.key === " ") input.activateSupport = true;
   });
 

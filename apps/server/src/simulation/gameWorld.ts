@@ -1,4 +1,4 @@
-import { enemyDefinitions, getHullDefinition, getModuleDefinition, moduleDefinitions } from "@healer/content";
+import { enemyDefinitions, getHullDefinition, moduleDefinitions } from "@healer/content";
 import { createInMemoryPersistence, type PersistenceBundle } from "@healer/persistence";
 import {
   addResourceMaps,
@@ -19,7 +19,6 @@ import {
   type ChangeMapMessage,
   type FireWeaponMessage,
   type InteractMessage,
-  type MoveInputMessage,
   type PersistentWorld,
   type PlayerSave,
   type ServerMessage,
@@ -43,6 +42,7 @@ export class GameWorld {
   readonly worldId = asWorldId("world-alpha");
   readonly runtime: WorldRuntimeState;
   private readonly sessions = new Map<string, PlayerSessionState>();
+  private readonly pendingMessages = new Map<string, ServerMessage[]>();
   private tickCounter = 0;
   private persistentWorld: PersistentWorld = createWorldGraph(this.worldId);
 
@@ -120,6 +120,7 @@ export class GameWorld {
     }
     await this.saveAllMaps();
     this.sessions.delete(playerId);
+    this.pendingMessages.delete(playerId);
   }
 
   async handleMessage(rawPlayerId: string, message: unknown): Promise<ServerMessage[]> {
@@ -160,7 +161,7 @@ export class GameWorld {
     }
   }
 
-  tick(deltaMs = 1000 / 30): void {
+  async tick(deltaMs = 1000 / 30): Promise<void> {
     this.tickCounter += 1;
     const deltaSeconds = deltaMs / 1000;
     const now = Date.now();
@@ -173,7 +174,14 @@ export class GameWorld {
       tickFoundries(map, now, () => `enemy-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`);
     }
 
-    void this.processShipBuildCompletions(now);
+    await this.processShipBuildCompletions(now);
+  }
+
+  drainPendingMessages(rawPlayerId: string): ServerMessage[] {
+    const playerId = asPlayerId(rawPlayerId);
+    const pending = this.pendingMessages.get(playerId) ?? [];
+    this.pendingMessages.delete(playerId);
+    return pending;
   }
 
   getSnapshot(rawPlayerId: string): SnapshotMessage {
@@ -283,7 +291,7 @@ export class GameWorld {
     return map.players[playerId];
   }
 
-  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: MoveInputMessage): void {
+  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean; aimWorld: { x: number; y: number } }): void {
     const thrustDirection = {
       x: input.aimWorld.x - player.position.x,
       y: input.aimWorld.y - player.position.y
@@ -478,8 +486,23 @@ export class GameWorld {
       if (synced.changed) {
         synced.player.updatedAt = now;
         await this.persistence.players.savePlayer(synced.player);
+        for (const ship of synced.completedShips) {
+          this.queueMessage(session.playerId, {
+            type: "shipBuildCompleted",
+            serverTime: now,
+            shipId: ship.id,
+            shipName: ship.name,
+            hullId: ship.hullId
+          });
+        }
       }
     }
+  }
+
+  private queueMessage(playerId: ReturnType<typeof asPlayerId>, message: ServerMessage): void {
+    const existing = this.pendingMessages.get(playerId) ?? [];
+    existing.push(message);
+    this.pendingMessages.set(playerId, existing);
   }
 
   private async saveAllMaps(): Promise<void> {
@@ -491,4 +514,3 @@ export class GameWorld {
     }
   }
 }
-

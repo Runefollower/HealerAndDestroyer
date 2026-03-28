@@ -168,7 +168,15 @@ export interface BuilderStateMessage {
   craftedModules: PlayerSave["craftedModules"];
 }
 
-export type ServerMessage = SnapshotMessage | JoinedWorldMessage | BuilderStateMessage;
+export interface ShipBuildCompletedMessage {
+  type: "shipBuildCompleted";
+  serverTime: number;
+  shipId: ShipId;
+  shipName: string;
+  hullId: string;
+}
+
+export type ServerMessage = SnapshotMessage | JoinedWorldMessage | BuilderStateMessage | ShipBuildCompletedMessage;
 
 export function createSnapshotMessage(
   tick: number,

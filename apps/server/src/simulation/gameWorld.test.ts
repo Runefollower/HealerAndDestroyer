@@ -38,7 +38,7 @@ describe("GameWorld", () => {
       tick: 1
     });
     for (let index = 0; index < 20; index += 1) {
-      world.tick();
+      await world.tick();
     }
     expect(map.chunks["0,0"].cells[0]).toBe(beforeCell);
 
@@ -55,7 +55,7 @@ describe("GameWorld", () => {
     expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[0]).toBe(0);
   });
 
-  it("tracks ship build timers, blocks unfinished swaps, and allows support activation on a completed support ship", async () => {
+  it("tracks ship build timers, emits completion updates, and allows support activation on a completed support ship", async () => {
     const world = new GameWorld();
     await world.initialize();
     await world.connectPlayer("player-1");
@@ -91,7 +91,16 @@ describe("GameWorld", () => {
     expect((await world.persistence.players.getPlayer(world.worldId, playerId))?.activeShipId).not.toBe(buildingShip?.shipId);
 
     vi.setSystemTime(Date.now() + 46_000);
-    world.tick();
+    await world.tick();
+
+    const notifications = world.drainPendingMessages("player-1");
+    expect(notifications).toContainEqual(
+      expect.objectContaining({
+        type: "shipBuildCompleted",
+        shipId: buildingShip?.shipId,
+        hullId: "warden-healer"
+      })
+    );
 
     const readyResponse = await world.handleMessage("player-1", { type: "interact" });
     if (readyResponse[0]?.type !== "builderState") {
@@ -99,6 +108,7 @@ describe("GameWorld", () => {
     }
     const readyShip = readyResponse[0].ships.find((ship) => ship.ship.hullId === "warden-healer");
     expect(readyShip?.ship.status).toBe("ready");
+    expect(readyShip?.remainingBuildMs).toBe(0);
 
     await world.handleMessage("player-1", {
       type: "builderAction",
@@ -147,7 +157,7 @@ describe("GameWorld", () => {
 
     const foundry = Object.values(rootMap.foundries)[0];
     foundry.lastSpawnAt = Date.now() - foundry.spawnCooldownMs - 1;
-    world.tick();
+    await world.tick();
     expect(Object.keys(rootMap.enemies).length).toBeGreaterThan(initialEnemyCount);
     expect(foundry.activeEnemyCount).toBeLessThanOrEqual(foundry.spawnCap);
 
@@ -160,7 +170,7 @@ describe("GameWorld", () => {
       tick: 10
     });
     for (let index = 0; index < 5; index += 1) {
-      world.tick();
+      await world.tick();
     }
 
     expect(foundry.buildState).toBe("destroyed");

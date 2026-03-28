@@ -53,7 +53,9 @@ export class GameServer {
       });
     });
 
-    this.tickHandle = setInterval(() => this.world.tick(1000 / this.config.tickRateHz), 1000 / this.config.tickRateHz);
+    this.tickHandle = setInterval(() => {
+      void this.tickWorld();
+    }, 1000 / this.config.tickRateHz);
     this.snapshotHandle = setInterval(() => this.broadcastSnapshots(), 1000 / this.config.snapshotRateHz);
   }
 
@@ -67,6 +69,23 @@ export class GameServer {
     this.wss.close();
   }
 
+  private async tickWorld(): Promise<void> {
+    await this.world.tick(1000 / this.config.tickRateHz);
+    this.flushPendingMessages();
+  }
+
+  private flushPendingMessages(): void {
+    for (const connection of this.clients) {
+      if (!connection.playerId) {
+        continue;
+      }
+
+      for (const message of this.world.drainPendingMessages(connection.playerId)) {
+        connection.socket.send(JSON.stringify(message));
+      }
+    }
+  }
+
   private broadcastSnapshots(): void {
     for (const connection of this.clients) {
       if (!connection.playerId) {
@@ -76,4 +95,3 @@ export class GameServer {
     }
   }
 }
-
