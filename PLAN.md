@@ -1,105 +1,167 @@
 # Healer and Destroyer Next-Step Plan
 
+## Completed Steps
+
+The following major milestones are already implemented in the current prototype and should be treated as completed baseline work for future planning:
+
+1. Initial monorepo and shared contract scaffold
+- `apps/client`, `apps/server`, `packages/shared`, `packages/content`, and `packages/persistence` are in place
+- shared network, content, persistence, and world-state contracts are established
+- client/server build and test flow is working from the repo root
+
+2. Authoritative multiplayer vertical-slice foundation
+- `ws`-based server runtime is active
+- player join, disconnect, reconnect, snapshots, and server tick loop are implemented
+- one starter map plus one connected deeper map exist in the world graph
+
+3. Persistent terrain and builder-state foundation
+- destructible terrain edits persist across reloads
+- builder site interaction, ship stable state, crafted module inventory, and install/remove module flow exist
+- builder state syncs between runtime and persistence cleanly enough for ongoing iteration
+
+4. Ship build timers and builder UX
+- ship builds track `building`, `ready`, and `active` states
+- ship completion is processed during server tick and surfaced to the client
+- builder UI supports build timers, completion feedback, stable sections, and open/close behavior tied to builder range and `E` toggling
+
+5. Module-gated gameplay actions
+- weapon fire remains separate from module activation
+- mining requires a mining-capable installed module
+- support/repair requires a support-capable installed module
+- crafted modules, hardpoint installs, and active-ship module usage are all wired into gameplay state
+
+6. Foundry-driven objective loop
+- root-map foundry acts as an objective structure with health, spawn cadence, and enemy cap behavior
+- destroying the root foundry unlocks the deeper path
+- foundry state persists across reloads and reconnects
+
+7. Step 2 and 3 hardening pass
+- client now surfaces module/action rejection feedback instead of failing silently
+- client supports explicit module-slot selection for weapon, mining, and support roles
+- HUD now communicates objective and foundry state more clearly
+- tests cover locked-route feedback, foundry unlock flow, and module-action rejection cases
+
+8. Logging and debugging support
+- server logging supports `normal`, `verbose`, and `very-verbose`
+- startup logs include configured and resolved log level
+- resource pickup, ship-build success/failure, connection lifecycle, and inventory sync diagnostics are logged
+
 ## Summary
 
-The next phase should optimize for a more playable vertical slice on top of the current `ws`-based runtime, while doing only the refactors needed to keep that work maintainable. The goal is to turn the current prototype into a loop that feels intentional: build ships, wait for and manage construction, use installed tools for distinct actions, fight foundry-driven enemies, and persist meaningful progress across reconnects.
+The next phase should shift from proving core loop structure to making the game readable, navigable, and spatially coherent. The current multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, and persistence working well enough that the biggest missing pieces are presentation and world readability.
 
-Recommended sequence:
+The priority for the next phase is:
 
-1. ship construction timers and builder completion UX
-2. tool-gated mining/combat/support rules
-3. foundry-driven PvE/objective loop
-4. targeted server subsystem extraction to support those features
-5. persistence/test hardening for the expanded slice
+1. sprite-based world rendering, starting with terrain
+2. ship, NPC, foundry, and structure sprite support
+3. authoritative collision and movement constraints
+4. visibility, line-of-sight, and player memory of explored terrain
+5. acceptance-test expansion around these spatial systems
 
 ## Key Changes
 
-### 1. Ship build timers and builder UX
+### 1. Terrain sprite pipeline and visual variety
 
-- extend builder state so each stored ship exposes whether it is `building`, `ready`, or `active`, plus remaining build time when applicable
-- finalize ship builds in the server runtime on tick, not only during incidental player interactions
-- update the builder UI to separate `Active Ship`, `Stored Ships`, and `Building Ships`
-- show countdown timers in the client and disable swap/install actions on unfinished ships
-- emit or infer a build-completed state transition so a finished ship becomes visibly usable without needing a reconnect
+- replace the current flat rendered rock tiles with sprite-based terrain rendering on the client
+- generate or source approximately 64 terrain-rock variations for the current solid terrain type
+- during map generation, assign each solid terrain cell a stable sprite variant from `1-64` so the map looks naturally varied instead of repeated
+- keep the terrain variant assignment deterministic so reconnects and re-renders show the same rock layout for the same persisted terrain state
+- preserve support for mined/destructible terrain, meaning the sprite disappears or changes correctly when a tile is removed
 
-Important contract changes:
+Important implementation notes:
 
-- `StoredShip` should expose stable build-timer information suitable for UI display
-- `BuilderStateMessage` should include enough timing data for live countdown rendering
+- introduce a terrain asset manifest and loading path in the client
+- expand chunk/tile state only as much as needed to support stable variant selection
+- prefer deterministic variant selection from tile coordinates plus map seed unless persisted overrides are needed
+- keep the first pass limited to the current rock terrain; do not introduce multiple biome art sets yet unless the pipeline makes that trivial
 
-### 2. Installed modules become real gameplay capabilities
+### 2. Sprite support for ships, NPCs, foundries, and structures
 
-- stop treating generic projectile use as both weapon fire and mining
-- keep `fireWeapon` for weapon-capable installed modules only
-- add a distinct module-activation path for non-weapon tools, with mining and support tools using installed module definitions instead of hardcoded behavior
-- mining should require a mining-capable installed module on a valid hardpoint
-- repair/support actions should require a support-capable installed module and target an allied ship or self, not terrain
-- terrain yields should come from the mining tool path; normal weapons should no longer be the primary way to mine
+- move player ships off primitive graphics and onto sprite assets
+- add sprite rendering for at least:
+  - player ship hulls
+  - enemy ships/NPCs
+  - foundries
+  - builder site structures
+  - pickups or salvage markers if needed for readability
+- preserve gameplay-facing readability over visual complexity, especially for hull state, allegiance, and interactable structures
+- keep the render system ready for later animation, but do not block this phase on full animation support
 
-Important contract changes:
+Important implementation notes:
 
-- add explicit capability metadata to module/content definitions for `weapon`, `mining`, and `support`
-- add a new shared client message for module activation, rather than overloading `fireWeapon` for every tool
-- replicated state should remain minimal; authoritative validation stays server-side
+- define a lightweight client asset registry keyed by hull id, enemy type id, structure type id, and terrain tile art id
+- keep a fallback path so missing assets fail visibly but do not crash the client
+- avoid baking gameplay meaning into ad hoc client-only names; asset keys should align with shared/content ids where practical
 
-### 3. Foundry-driven PvE loop
+### 3. Authoritative collision and movement constraints
 
-- upgrade the existing foundry structure from seeded scenery into the first real objective system
-- give foundries a spawn timer, local enemy cap, and simple rebuild/spawn behavior while active
-- spawn only basic enemy types in this phase; no squad logic or advanced AI yet
-- make foundry destruction meaningfully reward players with salvage/resources and temporarily reduce local threat
-- tie the deeper map push to this loop by making the root map's foundry the first meaningful objective before sustained deeper exploration
+- prevent ships from moving through solid terrain
+- prevent ships from overlapping major structures such as foundries and builder sites
+- prevent unrealistic overlap with other ships if that can be done simply in this phase
+- keep collision authoritative on the server, with the client following replicated resolution rather than inventing its own truth
+- update mining, navigation, and combat expectations so terrain actually matters as navigable space
 
-Important data/model changes:
+Important implementation notes:
 
-- promote foundry-specific runtime state out of generic structure-only handling
-- persist foundry health, active status, and spawn timing so reconnects preserve pressure correctly
+- start with simple collision shapes:
+  - terrain tiles as solid grid cells
+  - structures/foundries as circles or AABBs
+  - ships as circles or simple radii
+- prefer a stable and predictable collision response over a highly physical one
+- if full sliding movement is too much for the first pass, snapping or blocked-axis movement is acceptable as long as it feels consistent
+- add hooks so later weapon/projectile collision with terrain can reuse the same solidity rules
 
-### 4. Targeted server/client refactor to support the new slice
+### 4. Visibility, line of sight, and terrain memory
 
-- split [`gameWorld.ts`](/D:/Users/jim/github/HealerAndDestroyer/apps/server/src/simulation/gameWorld.ts) into focused subsystems without introducing a full ECS
-- recommended boundaries: `builder/ship lifecycle`, `terrain/mining`, `combat/tools`, `ai/foundries`, and `map persistence`
-- keep the current runtime/state model and `ws` transport; do not introduce Colyseus in this phase
-- keep [`app.ts`](/D:/Users/jim/github/HealerAndDestroyer/apps/client/src/game/app.ts) thin, but extract builder rendering and world rendering into separate client modules once timers and tool actions are added
-- continue using [`packages/shared`](/D:/Users/jim/github/HealerAndDestroyer/packages/shared/src/index.ts) as the only source of truth for cross-boundary contracts
+- players should not see through solid terrain
+- each player should only have live vision within a local visual radius and unobstructed line of sight
+- players should retain a memory of terrain they have already seen
+- remembered terrain should remain visible but greyed out when it is outside current vision
+- remembered terrain should not update while out of sight; it only refreshes when the player regains vision on that area
+- the first pass can focus on terrain memory and coarse enemy/structure visibility rather than fully nuanced stealth systems
 
-### 5. Persistence and acceptance hardening
+Important implementation notes:
 
-- persist ship build timers and completion state cleanly across disconnect/reconnect
-- persist installed module layouts and crafted module inventory as the canonical source for ship capabilities
-- persist foundry runtime state alongside chunk edits and structure state
-- replace current full-chunk snapshot persistence with chunk-delta persistence only if the implementation stays simple; otherwise keep the current representation for this phase and defer optimization
-- expand acceptance tests to cover the intended playable-slice path, not just isolated mechanics
+- keep the authoritative visibility model on the server if possible, especially for hidden active entities
+- if server-side terrain memory replication is too expensive for the first pass, a hybrid approach is acceptable:
+  - server controls current visibility and entity disclosure
+  - client stores remembered terrain based on previously visible chunk/tile data
+- choose a line-of-sight approach that fits the tile grid and current scope, such as ray sampling or flood-fill with occlusion
+- the HUD/minimap should eventually reflect explored-vs-currently-visible state, but the main world view is the first target
+
+### 5. Persistence and acceptance hardening for spatial systems
+
+- validate that terrain variants remain stable across reconnects and reloads
+- validate that collision prevents illegal positions after reconnect and map transitions
+- validate that explored-memory state behaves consistently when leaving and re-entering an area
+- expand acceptance coverage so the world feels spatially believable, not just mechanically connected
 
 ## Test Plan
 
 Add or update automated scenarios for:
 
-- ship build starts, countdown advances, build completes, ship becomes swappable
-- unfinished ships cannot be swapped into or modified
-- mining fails without an installed mining tool and succeeds with one
-- weapon fire damages enemies but does not serve as the main mining path
-- support module activation repairs a valid ship and rejects invalid targets
-- foundry spawns enemies on timer, respects local cap, and stops once destroyed
-- reconnect restores:
-  - chunk edits
-  - build timers/build completion state
-  - installed modules
-  - crafted module inventory
-  - foundry state
-- full vertical-slice flow:
+- terrain cells derive stable sprite variants from deterministic inputs
+- mined terrain removes or updates its rendered tile correctly after sync/reconnect
+- ships cannot move through solid terrain
+- ships cannot overlap foundries or builder sites
+- map transitions place the player in valid non-colliding positions
+- visibility hides terrain behind walls until line of sight is established
+- explored terrain remains visible in memory as greyed-out state when outside current vision
+- explored terrain memory does not update while the area is out of sight
+- reconnect preserves the intended terrain/visibility presentation state for the current implementation approach
+- full spatial slice flow:
   - join world
-  - mine resources
-  - craft/install module
-  - start ship build
-  - survive enemy pressure
-  - destroy foundry
-  - disconnect and reconnect with state preserved
+  - navigate through terrain corridors
+  - mine reachable ore
+  - use cover around terrain
+  - destroy the root foundry
+  - unlock and enter the deeper route
+  - reconnect without losing stable terrain presentation
 
 ## Assumptions
 
-- the next phase stays on the current `ws` runtime; Colyseus is deferred
-- the target is a stronger vertical slice, not a transport/runtime migration
-- one starter map plus one deeper connected map remains sufficient for this phase
-- no new auth, matchmaking, or account-scope systems are added
-- refactoring is limited to what is needed to support timers, tool validation, foundry behavior, and persistence without letting the server remain a single growing file
+- the next phase stays on the current `ws` runtime; Colyseus is still deferred
+- we are not starting full animation, particle polish, or high-end rendering yet; the goal is clear sprite-based readability first
+- terrain art starts with the current rock terrain before expanding to multiple biomes
+- collision is implemented as gameplay-first deterministic constraints, not full rigid-body physics
+- fog-of-war style memory can begin with the main playfield before any dedicated minimap/exploration UI is expanded
