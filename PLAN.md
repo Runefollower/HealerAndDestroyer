@@ -53,24 +53,32 @@ The following major milestones are already implemented in the current prototype 
 - terrain textures preload on the client and terrain preview tooling exists for fast art iteration
 - tests cover stable terrain variant selection and the asset flow now builds cleanly through the normal client pipeline
 
+10. Entity sprite support for ships, NPCs, structures, and salvage
+- player ships now render from modular hull, engine, and weapon sprite parts that are ready for builder-driven assembly
+- enemy ships now render as sprite assets and face their actual travel direction in the client
+- foundries, builder sites, and salvage markers now render through keyed sprite assets instead of primitive placeholders
+- client asset loading now includes a lightweight world-entity registry with visible fallbacks for missing sprite keys
+- the current readability pass keeps labels and hull-state overlays where useful while moving the world view onto sprite-backed presentation
+
 ## Summary
 
-The next phase should shift from proving core loop structure to making the game readable, navigable, and spatially coherent. The current multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, and persistence working well enough that the biggest missing pieces are presentation and world readability.
+The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, and first-pass entity sprites working well enough that the biggest missing pieces are movement feel, collision, and visibility-driven world readability.
 
 The priority for the next phase is:
 
-1. ship, NPC, foundry, and structure sprite support
-2. authoritative collision and movement constraints
-3. visibility, line-of-sight, and player memory of explored terrain
-4. acceptance-test expansion around these spatial systems
-5. follow-up terrain polish only if readability issues remain after entity and spatial systems land
+1. authoritative collision and movement constraints
+2. visibility, line-of-sight, and player memory of explored terrain
+3. acceptance-test expansion around these spatial systems
+4. follow-up terrain and entity readability polish only if issues remain after collision and visibility land
 
 ## Key Changes
 
-### 1. Sprite support for ships, NPCs, foundries, and structures
+### 1. Sprite support for ships, NPCs, foundries, and structures (completed baseline)
 
-- move player ships off primitive graphics and onto sprite assets
-- add sprite rendering for at least:
+Status: complete for the first readability pass.
+
+- player ships are now off primitive graphics and onto modular sprite assets
+- sprite rendering now exists for at least:
   - player ship hulls
   - enemy ships/NPCs
   - foundries
@@ -81,9 +89,9 @@ The priority for the next phase is:
 
 Important implementation notes:
 
-- define a lightweight client asset registry keyed by hull id, enemy type id, structure type id, and terrain tile art id
-- keep a fallback path so missing assets fail visibly but do not crash the client
-- avoid baking gameplay meaning into ad hoc client-only names; asset keys should align with shared/content ids where practical
+- a lightweight client asset registry now exists for player hull parts, enemy types, structure types, salvage markers, and terrain tile art ids
+- missing assets still fail visibly without crashing the client
+- asset keys continue to align with shared/content ids where practical, which should remain the rule for future additions
 
 ### 2. Authoritative collision and movement constraints
 
