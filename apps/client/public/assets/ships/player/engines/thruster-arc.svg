@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="thrusterArcBody" x1="22" y1="48" x2="70" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb653"/>
+      <stop offset="0.52" stop-color="#8ac7da"/>
+      <stop offset="1" stop-color="#effeff"/>
+    </linearGradient>
+  </defs>
+  <path d="M22 48 C24 34 40 28 62 32 L66 64 C40 68 24 62 22 48 Z" fill="url(#thrusterArcBody)" stroke="#eefcff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M18 48 C20 42 20 54 18 48 Z" fill="#ff9a3c"/>
+  <path d="M18 48 C16 40 14 36 12 34 C10 42 10 54 12 62 C14 60 16 56 18 48 Z" fill="#ff9340" opacity="0.85"/>
+  <path d="M60 34 L74 40 L74 56 L60 62 Z" fill="#233342"/>
+</svg>

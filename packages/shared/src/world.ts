@@ -1,4 +1,4 @@
-import type { EntityId, MapId, PlayerId } from "./ids.js";
+import type { EntityId, MapId, PlayerId, ShipId } from "./ids.js";
 import type { InstalledModule } from "./content.js";
 import type { ResourceMap } from "./resources.js";
 import type { MapConnection } from "./persistence.js";
@@ -17,7 +17,8 @@ export interface ChunkState {
 export interface PlayerShipState {
   id: EntityId;
   playerId: PlayerId;
-  shipId: string;
+  shipId: ShipId;
+  hullId: string;
   mapId: MapId;
   position: Vec2;
   velocity: Vec2;

@@ -1,4 +1,4 @@
-import { enemyDefinitions, getHullDefinition, moduleDefinitions } from "@healer/content";
+﻿import { enemyDefinitions, getHullDefinition, moduleDefinitions } from "@healer/content";
 import { createInMemoryPersistence, type PersistenceBundle } from "@healer/persistence";
 import {
   addResourceMaps,
@@ -10,6 +10,7 @@ import {
   createSnapshotMessage,
   distance,
   hasEnoughResources,
+  magnitude,
   normalize,
   scaleVec2,
   subtractResourceMaps,
@@ -39,6 +40,7 @@ interface PlayerSessionState {
 }
 
 const logger = createLogger("gameWorld");
+const minFacingSpeed = 0.01;
 
 export class GameWorld {
   readonly persistence: PersistenceBundle;
@@ -208,6 +210,7 @@ export class GameWorld {
     for (const player of Object.values(map.players)) {
       player.position.x += player.velocity.x * deltaSeconds;
       player.position.y += player.velocity.y * deltaSeconds;
+      this.updateShipFacingFromVelocity(player);
       player.velocity.x *= 0.92;
       player.velocity.y *= 0.92;
     }
@@ -340,12 +343,15 @@ export class GameWorld {
     const acceleration = input.thrustForward ? 80 : input.thrustReverse ? -40 : 0;
     player.velocity.x += normalized.x * acceleration * (1 / 30);
     player.velocity.y += normalized.y * acceleration * (1 / 30);
-    if (input.rotateLeft) {
-      player.rotation -= 0.1;
+    this.updateShipFacingFromVelocity(player);
+  }
+
+  private updateShipFacingFromVelocity(player: ReturnType<GameWorld["getPlayerShip"]>): void {
+    if (magnitude(player.velocity) <= minFacingSpeed) {
+      return;
     }
-    if (input.rotateRight) {
-      player.rotation += 0.1;
-    }
+
+    player.rotation = Math.atan2(player.velocity.y, player.velocity.x);
   }
 
   private fireWeapon(player: ReturnType<GameWorld["getPlayerShip"]>, message: FireWeaponMessage, now: number): void {
@@ -743,8 +749,3 @@ export class GameWorld {
     }
   }
 }
-
-
-
-
-

@@ -1,5 +1,6 @@
 import { selectTerrainVariant, type SnapshotMessage } from "@healer/shared";
 import { Graphics, Sprite, Text, type Container } from "pixi.js";
+import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
 
 const terrainTileSize = 32;
@@ -123,15 +124,28 @@ export function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): v
   }
 
   for (const player of snapshot.players) {
-    const graphic = new Graphics();
-    graphic.roundRect(player.position.x - 14, player.position.y - 10, 28, 20, 6).fill(player.playerId === snapshot.selfPlayerId ? 0x49c6ff : 0x9ea7b8);
-    worldLayer.addChild(graphic);
+    const isSelf = player.playerId === snapshot.selfPlayerId;
+    const ship = createPlayerShipDisplay(player.hullId, player.modules, player.shipId, isSelf);
+    ship.position.set(player.position.x, player.position.y);
+    ship.rotation = player.rotation;
+    worldLayer.addChild(ship);
+
+    const hullRatio = Math.max(0, Math.min(1, player.hull / Math.max(1, player.maxHull)));
+    const hullBack = new Graphics();
+    hullBack.rect(player.position.x - 16, player.position.y + 20, 32, 4).fill(0x071018);
+    hullBack.alpha = 0.9;
+    worldLayer.addChild(hullBack);
+
+    const hullFill = new Graphics();
+    hullFill.rect(player.position.x - 16, player.position.y + 20, Math.max(2, 32 * hullRatio), 4).fill(isSelf ? 0x73f3ca : 0xbecbda);
+    hullFill.alpha = 0.92;
+    worldLayer.addChild(hullFill);
 
     const label = new Text({
-      text: player.playerId === snapshot.selfPlayerId ? "You" : "Ally",
+      text: isSelf ? "You" : "Ally",
       style: { fontSize: 12, fill: 0xe9f2ff }
     });
-    label.position.set(player.position.x - 12, player.position.y - 28);
+    label.position.set(player.position.x - 12, player.position.y - 30);
     worldLayer.addChild(label);
   }
 }
@@ -162,5 +176,3 @@ function describeFoundryStatus(snapshot: SnapshotMessage): string {
   }
   return "Foundry status: none on this map";
 }
-
-

@@ -81,11 +81,14 @@ export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export interface PlayerSnapshot {
   id: EntityId;
   playerId: PlayerId;
+  shipId: ShipId;
+  hullId: string;
   position: { x: number; y: number };
   velocity: { x: number; y: number };
   rotation: number;
   hull: number;
   maxHull: number;
+  modules: InstalledModule[];
 }
 
 export interface EnemySnapshot {
@@ -209,11 +212,14 @@ export function createSnapshotMessage(
     players: Object.values(map.players).map((player) => ({
       id: player.id,
       playerId: player.playerId,
+      shipId: player.shipId,
+      hullId: player.hullId,
       position: player.position,
       velocity: player.velocity,
       rotation: player.rotation,
       hull: player.hull,
-      maxHull: player.maxHull
+      maxHull: player.maxHull,
+      modules: structuredClone(player.modules)
     })),
     enemies: Object.values(map.enemies).map((enemy) => ({
       id: enemy.id,
@@ -258,4 +264,3 @@ export function createSnapshotMessage(
     deeperPathUnlocked
   };
 }
-

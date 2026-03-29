@@ -6,12 +6,13 @@ import { NetworkClient } from "./networkClient.js";
 import { refreshBuilderTimers, renderBuilderState } from "./renderBuilder.js";
 import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
+import { preloadPlayerShipTextures } from "./playerShipAssets.js";
 import { preloadTerrainTextures } from "./terrainAssets.js";
 
 export async function bootstrapClient(): Promise<void> {
   const app = new Application();
   await app.init({ resizeTo: window, backgroundAlpha: 0 });
-  await preloadTerrainTextures();
+  await Promise.all([preloadTerrainTextures(), preloadPlayerShipTextures()]);
   document.getElementById("app")!.appendChild(app.canvas);
 
   const worldLayer = new Container();

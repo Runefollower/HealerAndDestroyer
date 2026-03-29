@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="pulseLanceBody" x1="24" y1="48" x2="76" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffbf5b"/>
+      <stop offset="0.4" stop-color="#7ebed0"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <path d="M22 42 L36 38 L54 38 L78 48 L54 58 L36 58 L22 54 Z" fill="url(#pulseLanceBody)" stroke="#effeff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M18 48 L28 42 L28 54 Z" fill="#253544"/>
+  <path d="M58 48 L84 48" stroke="#9df6ff" stroke-width="4" stroke-linecap="round"/>
+</svg>

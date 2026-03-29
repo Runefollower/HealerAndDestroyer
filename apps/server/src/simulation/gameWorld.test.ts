@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asPlayerId } from "@healer/shared";
 import { GameWorld } from "./gameWorld.js";
 
@@ -19,6 +19,26 @@ describe("GameWorld", () => {
 
     expect(player.spawnPoint.mapId).toBeDefined();
     expect(world.getSnapshot("player-1").players).toHaveLength(1);
+  });
+
+  it("faces the player ship along its travel direction", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    await world.handleMessage("player-1", {
+      type: "moveInput",
+      thrustForward: true,
+      thrustReverse: false,
+      rotateLeft: false,
+      rotateRight: false,
+      aimWorld: { x: 164, y: 164 },
+      tick: 1
+    });
+    await world.tick();
+
+    const snapshot = world.getSnapshot("player-1");
+    expect(snapshot.players[0]?.rotation).toBeCloseTo(Math.PI / 4, 1);
   });
 
   it("requires a mining tool for terrain mining and persists chunk edits on reload", async () => {
@@ -283,5 +303,3 @@ describe("GameWorld", () => {
     expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
   });
 });
-
-

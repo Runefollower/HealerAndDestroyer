@@ -7,6 +7,7 @@ export function createRuntimeShip(playerId: PlayerShipState["playerId"], ship: S
     id: asEntityId(`entity-${ship.id}`),
     playerId,
     shipId: ship.id,
+    hullId: ship.hullId,
     mapId: player.spawnPoint.mapId,
     position: { ...player.spawnPoint.position },
     velocity: { x: 0, y: 0 },
@@ -45,6 +46,7 @@ export function syncRuntimeShipFromSave(runtimePlayer: PlayerShipState, playerSa
   const activeShip = resolveActiveShip(playerSave);
   const hull = getHullDefinition(activeShip.hullId);
   runtimePlayer.shipId = activeShip.id;
+  runtimePlayer.hullId = activeShip.hullId;
   runtimePlayer.modules = structuredClone(activeShip.modules);
   runtimePlayer.hull = activeShip.hullIntegrity;
   runtimePlayer.maxHull = hull.baseHull;

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="wardenBulwarkHull" x1="14" y1="48" x2="82" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#586673"/>
+      <stop offset="0.42" stop-color="#93c3d5"/>
+      <stop offset="1" stop-color="#ecffff"/>
+    </linearGradient>
+  </defs>
+  <path d="M16 48 L28 30 L50 18 L82 48 L50 78 L28 66 Z" fill="url(#wardenBulwarkHull)" stroke="#eefeff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M18 48 L30 22 L38 36 L38 60 L30 74 Z" fill="#273646" opacity="0.88"/>
+  <path d="M30 40 L54 28 L68 48 L54 68 L30 56 Z" fill="#5c8292" opacity="0.55"/>
+  <ellipse cx="50" cy="48" rx="12" ry="8" fill="#182733" stroke="#9ae7ff" stroke-width="2"/>
+</svg>

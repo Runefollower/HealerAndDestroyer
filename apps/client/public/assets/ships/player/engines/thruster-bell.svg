@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="thrusterBellBody" x1="24" y1="48" x2="70" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb246"/>
+      <stop offset="0.52" stop-color="#84bfd2"/>
+      <stop offset="1" stop-color="#e8ffff"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 36 L56 30 L64 48 L56 66 L24 60 Z" fill="url(#thrusterBellBody)" stroke="#effdff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M20 38 L10 48 L20 58 Z" fill="#ff9240" opacity="0.82"/>
+  <path d="M56 30 L72 34 L72 62 L56 66 Z" fill="#213242"/>
+</svg>

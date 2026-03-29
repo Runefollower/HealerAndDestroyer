@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clientMessageSchema, createSnapshotMessage } from "./network.js";
-import { asEntityId, asMapId, asPlayerId } from "./ids.js";
+import { asEntityId, asMapId, asPlayerId, asShipId } from "./ids.js";
 
 describe("network schemas", () => {
   it("validates client movement messages", () => {
@@ -34,7 +34,8 @@ describe("network schemas", () => {
           a: {
             id: asEntityId("ship-1"),
             playerId: asPlayerId("player-1"),
-            shipId: "ship-1",
+            shipId: asShipId("ship-1"),
+            hullId: "sparrow-scout",
             mapId: asMapId("map-root"),
             position: { x: 0, y: 0 },
             velocity: { x: 1, y: 1 },
@@ -59,7 +60,8 @@ describe("network schemas", () => {
       {
         id: asEntityId("ship-1"),
         playerId: asPlayerId("player-1"),
-        shipId: "ship-1",
+        shipId: asShipId("ship-1"),
+        hullId: "sparrow-scout",
         mapId: asMapId("map-root"),
         position: { x: 0, y: 0 },
         velocity: { x: 1, y: 1 },
@@ -78,6 +80,7 @@ describe("network schemas", () => {
     );
 
     expect(snapshot.players).toHaveLength(1);
+    expect(snapshot.players[0]?.hullId).toBe("sparrow-scout");
     expect(snapshot.builderSiteNearby).toBe(true);
     expect(snapshot.chunks).toHaveLength(1);
     expect(snapshot.selfModules).toHaveLength(0);

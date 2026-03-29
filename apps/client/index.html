@@ -150,6 +150,95 @@
         background: rgba(255, 255, 255, 0.04);
       }
 
+      .ship-card-header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .ship-preview {
+        position: relative;
+        width: 132px;
+        height: 78px;
+        flex: 0 0 132px;
+        overflow: hidden;
+        border-radius: 14px;
+        border: 1px solid rgba(132, 204, 255, 0.18);
+        background:
+          radial-gradient(circle at 50% 48%, rgba(79, 198, 255, 0.18), rgba(4, 12, 18, 0) 58%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
+      }
+
+      .ship-preview::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 16px 16px;
+        opacity: 0.18;
+        pointer-events: none;
+      }
+
+      .ship-preview-fallback {
+        background: linear-gradient(180deg, rgba(73, 198, 255, 0.22), rgba(4, 12, 18, 0.18));
+      }
+
+      .ship-preview-sprite {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform-origin: center;
+        filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.3));
+        pointer-events: none;
+      }
+
+      .ship-preview-copy {
+        min-width: 0;
+      }
+
+      .ship-part-library {
+        display: grid;
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      .ship-part-gallery {
+        display: grid;
+        gap: 6px;
+      }
+
+      .ship-part-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .ship-part-option {
+        padding: 8px;
+        border-radius: 12px;
+        border: 1px solid rgba(132, 204, 255, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .ship-part-swatch {
+        display: grid;
+        place-items: center;
+        height: 58px;
+        border-radius: 10px;
+        background: radial-gradient(circle at 50% 50%, rgba(79, 198, 255, 0.18), rgba(4, 12, 18, 0.02) 62%);
+      }
+
+      .ship-part-swatch img {
+        max-width: 100%;
+        max-height: 48px;
+      }
+
+      .ship-part-name {
+        margin-top: 6px;
+        font-size: 0.76rem;
+        color: rgba(233, 242, 255, 0.82);
+      }
+
       .section-label {
         margin: 14px 0 6px;
         font-size: 0.9rem;
@@ -183,4 +272,3 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-

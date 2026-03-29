@@ -1,5 +1,6 @@
 import { getHullDefinition, hullDefinitions, moduleDefinitions } from "@healer/content";
 import type { BuilderStateMessage, BuilderShipState } from "@healer/shared";
+import { playerShipPartCatalog, renderPlayerShipPreviewMarkup } from "./playerShipAssets.js";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
@@ -86,11 +87,16 @@ function renderShipCard(shipState: BuilderShipState, message: BuilderStateMessag
 
   return `
     <div class="ship-card" data-ship-card="${ship.id}">
-      <strong>${ship.name}</strong>${ship.id === message.activeShipId ? " (Active)" : ""}<br/>
-      Hull: ${ship.hullId}<br/>
-      Status: ${ship.status}<br/>
-      ${progressMarkup}
-      ${swapButton}
+      <div class="ship-card-header">
+        ${renderPlayerShipPreviewMarkup(ship.hullId, ship.modules, ship.id, `${ship.name} preview`)}
+        <div class="ship-preview-copy">
+          <strong>${ship.name}</strong>${ship.id === message.activeShipId ? " (Active)" : ""}<br/>
+          Hull: ${ship.hullId}<br/>
+          Status: ${ship.status}<br/>
+          ${progressMarkup}
+          ${swapButton}
+        </div>
+      </div>
       ${hardpoints}
     </div>
   `;
@@ -101,6 +107,29 @@ function renderShipSection(title: string, ships: BuilderShipState[], message: Bu
     <div style="margin-top: 14px">
       <div class="section-label">${title} (${ships.length})</div>
       ${ships.length ? ships.map((ship) => renderShipCard(ship, message, clockOffsetMs)).join("") : `<div class="ship-card muted-copy">${emptyState}</div>`}
+    </div>
+  `;
+}
+
+function renderPartGallery(title: string, partType: keyof typeof playerShipPartCatalog): string {
+  const parts = playerShipPartCatalog[partType];
+  return `
+    <div class="ship-part-gallery">
+      <div class="muted-copy">${title}</div>
+      <div class="ship-part-grid">
+        ${parts
+          .map(
+            (part) => `
+              <div class="ship-part-option">
+                <div class="ship-part-swatch">
+                  <img src="${part.textureUrl}" alt="" />
+                </div>
+                <div class="ship-part-name">${part.label}</div>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
     </div>
   `;
 }
@@ -127,6 +156,13 @@ export function renderBuilderState(builder: HTMLElement, message: BuilderStateMe
   builder.innerHTML = `
     <p class="panel-title">Builder Site</p>
     ${buildQueueSummary}
+    <div class="section-label">Prototype Ship Parts</div>
+    <div class="muted-copy">Hull, engine, and weapon art are now separate layers so builder previews can assemble them cleanly.</div>
+    <div class="ship-part-library">
+      ${renderPartGallery("Hull options", "hull")}
+      ${renderPartGallery("Engine options", "engine")}
+      ${renderPartGallery("Weapon options", "weapon")}
+    </div>
     <div class="section-label">Crafted Modules</div>
     <div>${craftedModuleSummary}</div>
     <div style="margin-top: 10px">${moduleButtons}</div>

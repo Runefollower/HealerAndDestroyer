@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="thrusterBlockBody" x1="22" y1="48" x2="68" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffae47"/>
+      <stop offset="0.5" stop-color="#7dbed2"/>
+      <stop offset="1" stop-color="#dffcff"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 30 L56 34 L56 62 L24 66 Z" fill="url(#thrusterBlockBody)" stroke="#eefcff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M20 34 L30 48 L20 62 Z" fill="#ff8b34" opacity="0.8"/>
+  <path d="M56 34 L70 38 L70 58 L56 62 Z" fill="#223241"/>
+</svg>
