@@ -21,24 +21,39 @@ describe("GameWorld", () => {
     expect(world.getSnapshot("player-1").players).toHaveLength(1);
   });
 
-  it("faces the player ship along its travel direction", async () => {
+  it("rotates with A/D input and thrusts along the ship heading", async () => {
     const world = new GameWorld();
     await world.initialize();
     await world.connectPlayer("player-1");
 
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    player.rotation = Math.PI / 2;
+
+    await world.handleMessage("player-1", {
+      type: "moveInput",
+      thrustForward: false,
+      thrustReverse: false,
+      rotateLeft: false,
+      rotateRight: true,
+      tick: 1
+    });
+    expect(player.rotation).toBeCloseTo(Math.PI / 2 + 0.1, 5);
+
+    const startX = player.position.x;
+    const startY = player.position.y;
     await world.handleMessage("player-1", {
       type: "moveInput",
       thrustForward: true,
       thrustReverse: false,
       rotateLeft: false,
       rotateRight: false,
-      aimWorld: { x: 164, y: 164 },
-      tick: 1
+      tick: 2
     });
     await world.tick();
 
-    const snapshot = world.getSnapshot("player-1");
-    expect(snapshot.players[0]?.rotation).toBeCloseTo(Math.PI / 4, 1);
+    expect(player.position.y).toBeGreaterThan(startY);
+    expect(Math.abs(player.position.y - startY)).toBeGreaterThan(Math.abs(player.position.x - startX));
   });
 
   it("requires a mining tool for terrain mining and persists chunk edits on reload", async () => {

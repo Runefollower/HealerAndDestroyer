@@ -145,7 +145,6 @@ export async function bootstrapClient(): Promise<void> {
       thrustReverse: input.thrustReverse,
       rotateLeft: input.rotateLeft,
       rotateRight: input.rotateRight,
-      aimWorld: mouseWorld,
       tick
     });
 

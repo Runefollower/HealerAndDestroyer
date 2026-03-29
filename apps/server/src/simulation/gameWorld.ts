@@ -10,7 +10,6 @@ import {
   createSnapshotMessage,
   distance,
   hasEnoughResources,
-  magnitude,
   normalize,
   scaleVec2,
   subtractResourceMaps,
@@ -40,7 +39,9 @@ interface PlayerSessionState {
 }
 
 const logger = createLogger("gameWorld");
-const minFacingSpeed = 0.01;
+const rotationStep = 0.1;
+const forwardThrust = 80;
+const reverseThrust = 40;
 
 export class GameWorld {
   readonly persistence: PersistenceBundle;
@@ -210,7 +211,6 @@ export class GameWorld {
     for (const player of Object.values(map.players)) {
       player.position.x += player.velocity.x * deltaSeconds;
       player.position.y += player.velocity.y * deltaSeconds;
-      this.updateShipFacingFromVelocity(player);
       player.velocity.x *= 0.92;
       player.velocity.y *= 0.92;
     }
@@ -334,24 +334,25 @@ export class GameWorld {
     return map.players[playerId];
   }
 
-  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean; aimWorld: { x: number; y: number } }): void {
-    const thrustDirection = {
-      x: input.aimWorld.x - player.position.x,
-      y: input.aimWorld.y - player.position.y
-    };
-    const normalized = normalize(thrustDirection);
-    const acceleration = input.thrustForward ? 80 : input.thrustReverse ? -40 : 0;
-    player.velocity.x += normalized.x * acceleration * (1 / 30);
-    player.velocity.y += normalized.y * acceleration * (1 / 30);
-    this.updateShipFacingFromVelocity(player);
-  }
+  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean }): void {
+    if (input.rotateLeft) {
+      player.rotation -= rotationStep;
+    }
+    if (input.rotateRight) {
+      player.rotation += rotationStep;
+    }
 
-  private updateShipFacingFromVelocity(player: ReturnType<GameWorld["getPlayerShip"]>): void {
-    if (magnitude(player.velocity) <= minFacingSpeed) {
+    const thrust = input.thrustForward ? forwardThrust : input.thrustReverse ? -reverseThrust : 0;
+    if (thrust === 0) {
       return;
     }
 
-    player.rotation = Math.atan2(player.velocity.y, player.velocity.x);
+    const forward = {
+      x: Math.cos(player.rotation),
+      y: Math.sin(player.rotation)
+    };
+    player.velocity.x += forward.x * thrust * (1 / 30);
+    player.velocity.y += forward.y * thrust * (1 / 30);
   }
 
   private fireWeapon(player: ReturnType<GameWorld["getPlayerShip"]>, message: FireWeaponMessage, now: number): void {

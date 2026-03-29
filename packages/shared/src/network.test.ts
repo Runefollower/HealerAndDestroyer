@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { clientMessageSchema, createSnapshotMessage } from "./network.js";
 import { asEntityId, asMapId, asPlayerId, asShipId } from "./ids.js";
 
@@ -10,7 +10,6 @@ describe("network schemas", () => {
       thrustReverse: false,
       rotateLeft: false,
       rotateRight: true,
-      aimWorld: { x: 10, y: 20 },
       tick: 5
     });
 

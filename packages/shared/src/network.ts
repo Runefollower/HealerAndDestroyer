@@ -16,7 +16,6 @@ export const moveInputSchema = z.object({
   thrustReverse: z.boolean(),
   rotateLeft: z.boolean(),
   rotateRight: z.boolean(),
-  aimWorld: vec2Schema,
   tick: z.number().int().nonnegative()
 });
 
