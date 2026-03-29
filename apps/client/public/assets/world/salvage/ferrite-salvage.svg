@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="ferriteSalvage" x1="12" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fdfdf3"/>
+      <stop offset="0.45" stop-color="#f0db7c"/>
+      <stop offset="1" stop-color="#8d6c2d"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 10 L48 18 L54 34 L42 50 L22 54 L10 36 L16 18 Z" fill="url(#ferriteSalvage)" stroke="#fffbe6" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M22 24 L40 40 M26 42 L42 26" stroke="#6e531f" stroke-width="3" stroke-linecap="round"/>
+</svg>

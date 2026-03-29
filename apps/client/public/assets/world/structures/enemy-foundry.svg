@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="foundryCore" cx="50%" cy="50%" r="55%">
+      <stop offset="0" stop-color="#fff5d6"/>
+      <stop offset="0.4" stop-color="#ff9d72"/>
+      <stop offset="1" stop-color="#5d2f36"/>
+    </radialGradient>
+    <linearGradient id="foundryShell" x1="20" y1="64" x2="108" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#483942"/>
+      <stop offset="0.45" stop-color="#8d6163"/>
+      <stop offset="1" stop-color="#ddd8de"/>
+    </linearGradient>
+  </defs>
+  <path d="M22 66 L34 32 L64 18 L96 32 L108 66 L92 98 L64 112 L34 100 Z" fill="url(#foundryShell)" stroke="#fff3f2" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="64" cy="66" r="24" fill="url(#foundryCore)" stroke="#fff5df" stroke-width="4"/>
+  <path d="M36 34 L48 54 M92 34 L80 54 M36 98 L50 80 M92 98 L78 80" stroke="#2f2127" stroke-width="6" stroke-linecap="round"/>
+  <path d="M64 24 L64 42 M30 66 L46 66 M82 66 L98 66" stroke="#ffd4c2" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+</svg>

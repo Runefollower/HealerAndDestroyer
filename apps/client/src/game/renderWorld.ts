@@ -2,6 +2,7 @@ import { selectTerrainVariant, type SnapshotMessage } from "@healer/shared";
 import { Graphics, Sprite, Text, type Container } from "pixi.js";
 import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
+import { createEnemyDisplay, createFoundryDisplay, createSalvageDisplay, createStructureDisplay } from "./worldEntityAssets.js";
 
 const terrainTileSize = 32;
 const terrainSpriteSize = 46;
@@ -93,34 +94,35 @@ export function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): v
   }
 
   for (const structure of snapshot.structures) {
-    const graphic = new Graphics();
-    graphic.rect(structure.position.x - 18, structure.position.y - 18, 36, 36).fill(structure.structureTypeId === "builder-site" ? 0x73f3ca : 0x8896a8);
-    worldLayer.addChild(graphic);
+    const sprite = createStructureDisplay(structure.structureTypeId);
+    sprite.position.set(structure.position.x, structure.position.y);
+    worldLayer.addChild(sprite);
   }
 
   for (const foundry of snapshot.foundries) {
-    const graphic = new Graphics();
-    graphic.rect(foundry.position.x - 22, foundry.position.y - 22, 44, 44).fill(foundry.active ? 0xff7e6b : 0x5d6775);
-    worldLayer.addChild(graphic);
+    const sprite = createFoundryDisplay(foundry.active);
+    sprite.position.set(foundry.position.x, foundry.position.y);
+    worldLayer.addChild(sprite);
 
     const statusLabel = new Text({
       text: foundry.active ? `Foundry ${foundry.health} HP` : "Foundry Down",
       style: { fontSize: 12, fill: foundry.active ? 0xffd7cf : 0xb6c0cc }
     });
-    statusLabel.position.set(foundry.position.x - 30, foundry.position.y - 38);
+    statusLabel.position.set(foundry.position.x - 30, foundry.position.y - 52);
     worldLayer.addChild(statusLabel);
   }
 
   for (const drop of snapshot.drops) {
-    const graphic = new Graphics();
-    graphic.circle(drop.position.x, drop.position.y, 5).fill(0xffd86f);
-    worldLayer.addChild(graphic);
+    const sprite = createSalvageDisplay(drop.resources);
+    sprite.position.set(drop.position.x, drop.position.y);
+    worldLayer.addChild(sprite);
   }
 
   for (const enemy of snapshot.enemies) {
-    const graphic = new Graphics();
-    graphic.circle(enemy.position.x, enemy.position.y, 10).fill(0xff5252);
-    worldLayer.addChild(graphic);
+    const sprite = createEnemyDisplay(enemy.enemyTypeId);
+    sprite.position.set(enemy.position.x, enemy.position.y);
+    sprite.rotation = enemy.rotation;
+    worldLayer.addChild(sprite);
   }
 
   for (const player of snapshot.players) {

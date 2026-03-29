@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="burrowSentryBody" x1="16" y1="48" x2="80" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4d3538"/>
+      <stop offset="0.55" stop-color="#c86b58"/>
+      <stop offset="1" stop-color="#fff1e6"/>
+    </linearGradient>
+  </defs>
+  <path d="M16 48 L26 28 L52 24 L80 48 L52 72 L26 68 Z" fill="url(#burrowSentryBody)" stroke="#fff3ea" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M18 48 L28 18 L36 34 L36 62 L28 78 Z" fill="#352428" opacity="0.94"/>
+  <path d="M34 38 L58 32 L70 48 L58 64 L34 58 Z" fill="#87514b" opacity="0.55"/>
+  <ellipse cx="48" cy="48" rx="9" ry="7" fill="#2c1f24" stroke="#ffd2bf" stroke-width="2"/>
+  <path d="M54 40 L78 32" stroke="#ffe7d9" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M54 56 L78 64" stroke="#ffe7d9" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

@@ -8,11 +8,12 @@ import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
 import { preloadPlayerShipTextures } from "./playerShipAssets.js";
 import { preloadTerrainTextures } from "./terrainAssets.js";
+import { preloadWorldEntityTextures } from "./worldEntityAssets.js";
 
 export async function bootstrapClient(): Promise<void> {
   const app = new Application();
   await app.init({ resizeTo: window, backgroundAlpha: 0 });
-  await Promise.all([preloadTerrainTextures(), preloadPlayerShipTextures()]);
+  await Promise.all([preloadTerrainTextures(), preloadPlayerShipTextures(), preloadWorldEntityTextures()]);
   document.getElementById("app")!.appendChild(app.canvas);
 
   const worldLayer = new Container();

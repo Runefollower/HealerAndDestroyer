@@ -1,4 +1,4 @@
-﻿import { enemyDefinitions, getHullDefinition, moduleDefinitions } from "@healer/content";
+import { enemyDefinitions, getHullDefinition, moduleDefinitions } from "@healer/content";
 import { createInMemoryPersistence, type PersistenceBundle } from "@healer/persistence";
 import {
   addResourceMaps,
@@ -280,6 +280,7 @@ export class GameWorld {
         x: nearestPlayer.position.x - enemy.position.x,
         y: nearestPlayer.position.y - enemy.position.y
       });
+      enemy.rotation = Math.atan2(direction.y, direction.x);
       enemy.velocity = scaleVec2(direction, 20);
       enemy.position.x += enemy.velocity.x * deltaSeconds;
       enemy.position.y += enemy.velocity.y * deltaSeconds;

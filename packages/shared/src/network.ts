@@ -94,6 +94,7 @@ export interface EnemySnapshot {
   id: EntityId;
   enemyTypeId: string;
   position: { x: number; y: number };
+  rotation: number;
   health: number;
 }
 
@@ -224,6 +225,7 @@ export function createSnapshotMessage(
       id: enemy.id,
       enemyTypeId: enemy.enemyTypeId,
       position: enemy.position,
+      rotation: enemy.rotation,
       health: enemy.health
     })),
     projectiles: Object.values(map.projectiles).map((projectile) => ({

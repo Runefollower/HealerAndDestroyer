@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asPlayerId } from "@healer/shared";
 import { GameWorld } from "./gameWorld.js";
 
@@ -281,6 +281,10 @@ describe("GameWorld", () => {
     await world.tick();
     expect(Object.keys(rootMap.enemies).length).toBeGreaterThan(initialEnemyCount);
     expect(foundry.activeEnemyCount).toBeLessThanOrEqual(foundry.spawnCap);
+
+    const rotatedEnemy = world.getSnapshot("player-1").enemies[0];
+    expect(rotatedEnemy?.rotation).toBeTypeOf("number");
+    expect(Math.abs(rotatedEnemy?.rotation ?? 0)).toBeGreaterThan(0.01);
 
     foundry.health = 20;
     rootMap.players["player-1"].position = { x: foundry.position.x - 8, y: foundry.position.y };
