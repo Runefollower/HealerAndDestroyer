@@ -1,5 +1,10 @@
-import { Graphics, Text, type Container } from "pixi.js";
-import type { SnapshotMessage } from "@healer/shared";
+import { selectTerrainVariant, type SnapshotMessage } from "@healer/shared";
+import { Graphics, Sprite, Text, type Container } from "pixi.js";
+import { getTerrainTexture } from "./terrainAssets.js";
+
+const terrainTileSize = 32;
+const terrainSpriteSize = 46;
+const terrainSpriteInset = (terrainSpriteSize - terrainTileSize) / 2;
 
 export interface HudSelections {
   weapon: string;
@@ -56,18 +61,33 @@ export function renderWorld(worldLayer: Container, snapshot: SnapshotMessage): v
   worldLayer.removeChildren();
 
   for (const chunk of snapshot.chunks) {
-    const tileSize = 32;
     chunk.cells.forEach((cell, index) => {
       if (cell === 0) {
         return;
       }
       const localX = index % 8;
       const localY = Math.floor(index / 8);
-      const x = (chunk.chunkX * 8 + localX) * tileSize;
-      const y = (chunk.chunkY * 8 + localY) * tileSize;
-      const graphic = new Graphics();
-      graphic.rect(x, y, tileSize, tileSize).fill(cell === 1 ? 0x374a5d : 0x3d5665);
-      worldLayer.addChild(graphic);
+      const x = (chunk.chunkX * 8 + localX) * terrainTileSize;
+      const y = (chunk.chunkY * 8 + localY) * terrainTileSize;
+      const variant = selectTerrainVariant({
+        mapId: snapshot.mapId,
+        chunkX: chunk.chunkX,
+        chunkY: chunk.chunkY,
+        cellIndex: index,
+        cellType: cell
+      });
+      const sprite = new Sprite(getTerrainTexture(variant));
+      sprite.position.set(x - terrainSpriteInset, y - terrainSpriteInset);
+      sprite.width = terrainSpriteSize;
+      sprite.height = terrainSpriteSize;
+      sprite.alpha = cell === 1 ? 0.99 : 0.95;
+      if (cell === 2) {
+        sprite.tint = 0xc4d7e6;
+      }
+      if (cell >= 3) {
+        sprite.tint = 0xb7ccd8;
+      }
+      worldLayer.addChild(sprite);
     });
   }
 
@@ -142,3 +162,5 @@ function describeFoundryStatus(snapshot: SnapshotMessage): string {
   }
   return "Foundry status: none on this map";
 }
+
+

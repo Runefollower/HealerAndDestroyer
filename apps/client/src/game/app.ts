@@ -6,10 +6,12 @@ import { NetworkClient } from "./networkClient.js";
 import { refreshBuilderTimers, renderBuilderState } from "./renderBuilder.js";
 import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
+import { preloadTerrainTextures } from "./terrainAssets.js";
 
 export async function bootstrapClient(): Promise<void> {
   const app = new Application();
   await app.init({ resizeTo: window, backgroundAlpha: 0 });
+  await preloadTerrainTextures();
   document.getElementById("app")!.appendChild(app.canvas);
 
   const worldLayer = new Container();
@@ -352,3 +354,5 @@ function cycleSelectedModule(store: ClientStore, capability: ModuleSelectionCapa
   const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % matchingModules.length : 0;
   store.selectedModuleHardpoints[capability] = matchingModules[nextIndex].hardpointId;
 }
+
+

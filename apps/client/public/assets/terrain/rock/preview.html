@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Terrain Rock Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #0f1418;
+      --panel: #172028;
+      --panel-border: #263441;
+      --ink: #e2edf4;
+      --muted: #8fa1ae;
+      --checker-a: #14202a;
+      --checker-b: #1b2833;
+      --accent: #7fc8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at top, rgba(127, 200, 255, 0.08), transparent 26%),
+        linear-gradient(180deg, #10171d 0%, var(--page) 100%);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    main {
+      width: min(1320px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 28px 0 60px;
+    }
+    h1, h2 { margin: 0 0 10px; font-weight: 600; }
+    p { margin: 0; color: var(--muted); line-height: 1.5; }
+    .stack { display: grid; gap: 24px; }
+    .panel {
+      background: rgba(23, 32, 40, 0.9);
+      border: 1px solid rgba(38, 52, 65, 0.9);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .sheet {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .tile-card { display: grid; gap: 8px; }
+    .checker {
+      position: relative;
+      overflow: hidden;
+      min-height: 108px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      background:
+        linear-gradient(45deg, var(--checker-a) 25%, transparent 25%) 0 0 / 22px 22px,
+        linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%) 0 11px / 22px 22px,
+        linear-gradient(45deg, transparent 75%, var(--checker-b) 75%) 11px -11px / 22px 22px,
+        linear-gradient(-45deg, transparent 75%, var(--checker-b) 75%) -11px 0 / 22px 22px,
+        #111820;
+    }
+    .tile-card img {
+      position: absolute;
+      width: 88px;
+      height: 88px;
+      left: calc(50% - 44px);
+      top: calc(50% - 44px);
+      image-rendering: auto;
+      pointer-events: none;
+    }
+    .tile-card code {
+      color: var(--accent);
+      font-size: 12px;
+      text-align: center;
+    }
+    .stage-wrap {
+      margin-top: 18px;
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      background:
+        linear-gradient(45deg, var(--checker-a) 25%, transparent 25%) 0 0 / 32px 32px,
+        linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%) 0 16px / 32px 32px,
+        linear-gradient(45deg, transparent 75%, var(--checker-b) 75%) 16px -16px / 32px 32px,
+        linear-gradient(-45deg, transparent 75%, var(--checker-b) 75%) -16px 0 / 32px 32px,
+        #111820;
+      padding: 16px;
+    }
+    .stage {
+      position: relative;
+      width: 256px;
+      height: 256px;
+      margin: 0 auto;
+    }
+    .stage img {
+      position: absolute;
+      width: 46px;
+      height: 46px;
+      image-rendering: auto;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="stack">
+    <section class="panel">
+      <h1>Terrain Rock Preview</h1>
+      <p>Generated terrain cluster set with full-sheet browsing and a stage preview that matches the in-game 32px cell plus 46px terrain sprite overlap.</p>
+      <div class="meta">
+        <span>64 variants</span>
+        <span>Tile size: 32px</span>
+        <span>Sprite size: 46px</span>
+        <span>Inset: 7px</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Variant Sheet</h2>
+      <p>All generated terrain rocks on a transparent checker background.</p>
+      <div class="sheet">
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-01.png" alt="rock-01.png" /></div>
+            <code>rock-01.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-02.png" alt="rock-02.png" /></div>
+            <code>rock-02.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-03.png" alt="rock-03.png" /></div>
+            <code>rock-03.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-04.png" alt="rock-04.png" /></div>
+            <code>rock-04.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-05.png" alt="rock-05.png" /></div>
+            <code>rock-05.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-06.png" alt="rock-06.png" /></div>
+            <code>rock-06.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-07.png" alt="rock-07.png" /></div>
+            <code>rock-07.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-08.png" alt="rock-08.png" /></div>
+            <code>rock-08.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-09.png" alt="rock-09.png" /></div>
+            <code>rock-09.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-10.png" alt="rock-10.png" /></div>
+            <code>rock-10.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-11.png" alt="rock-11.png" /></div>
+            <code>rock-11.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-12.png" alt="rock-12.png" /></div>
+            <code>rock-12.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-13.png" alt="rock-13.png" /></div>
+            <code>rock-13.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-14.png" alt="rock-14.png" /></div>
+            <code>rock-14.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-15.png" alt="rock-15.png" /></div>
+            <code>rock-15.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-16.png" alt="rock-16.png" /></div>
+            <code>rock-16.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-17.png" alt="rock-17.png" /></div>
+            <code>rock-17.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-18.png" alt="rock-18.png" /></div>
+            <code>rock-18.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-19.png" alt="rock-19.png" /></div>
+            <code>rock-19.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-20.png" alt="rock-20.png" /></div>
+            <code>rock-20.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-21.png" alt="rock-21.png" /></div>
+            <code>rock-21.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-22.png" alt="rock-22.png" /></div>
+            <code>rock-22.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-23.png" alt="rock-23.png" /></div>
+            <code>rock-23.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-24.png" alt="rock-24.png" /></div>
+            <code>rock-24.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-25.png" alt="rock-25.png" /></div>
+            <code>rock-25.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-26.png" alt="rock-26.png" /></div>
+            <code>rock-26.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-27.png" alt="rock-27.png" /></div>
+            <code>rock-27.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-28.png" alt="rock-28.png" /></div>
+            <code>rock-28.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-29.png" alt="rock-29.png" /></div>
+            <code>rock-29.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-30.png" alt="rock-30.png" /></div>
+            <code>rock-30.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-31.png" alt="rock-31.png" /></div>
+            <code>rock-31.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-32.png" alt="rock-32.png" /></div>
+            <code>rock-32.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-33.png" alt="rock-33.png" /></div>
+            <code>rock-33.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-34.png" alt="rock-34.png" /></div>
+            <code>rock-34.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-35.png" alt="rock-35.png" /></div>
+            <code>rock-35.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-36.png" alt="rock-36.png" /></div>
+            <code>rock-36.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-37.png" alt="rock-37.png" /></div>
+            <code>rock-37.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-38.png" alt="rock-38.png" /></div>
+            <code>rock-38.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-39.png" alt="rock-39.png" /></div>
+            <code>rock-39.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-40.png" alt="rock-40.png" /></div>
+            <code>rock-40.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-41.png" alt="rock-41.png" /></div>
+            <code>rock-41.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-42.png" alt="rock-42.png" /></div>
+            <code>rock-42.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-43.png" alt="rock-43.png" /></div>
+            <code>rock-43.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-44.png" alt="rock-44.png" /></div>
+            <code>rock-44.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-45.png" alt="rock-45.png" /></div>
+            <code>rock-45.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-46.png" alt="rock-46.png" /></div>
+            <code>rock-46.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-47.png" alt="rock-47.png" /></div>
+            <code>rock-47.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-48.png" alt="rock-48.png" /></div>
+            <code>rock-48.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-49.png" alt="rock-49.png" /></div>
+            <code>rock-49.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-50.png" alt="rock-50.png" /></div>
+            <code>rock-50.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-51.png" alt="rock-51.png" /></div>
+            <code>rock-51.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-52.png" alt="rock-52.png" /></div>
+            <code>rock-52.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-53.png" alt="rock-53.png" /></div>
+            <code>rock-53.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-54.png" alt="rock-54.png" /></div>
+            <code>rock-54.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-55.png" alt="rock-55.png" /></div>
+            <code>rock-55.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-56.png" alt="rock-56.png" /></div>
+            <code>rock-56.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-57.png" alt="rock-57.png" /></div>
+            <code>rock-57.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-58.png" alt="rock-58.png" /></div>
+            <code>rock-58.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-59.png" alt="rock-59.png" /></div>
+            <code>rock-59.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-60.png" alt="rock-60.png" /></div>
+            <code>rock-60.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-61.png" alt="rock-61.png" /></div>
+            <code>rock-61.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-62.png" alt="rock-62.png" /></div>
+            <code>rock-62.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-63.png" alt="rock-63.png" /></div>
+            <code>rock-63.png</code>
+          </div>
+        
+          <div class="tile-card">
+            <div class="checker"><img src="./rock-64.png" alt="rock-64.png" /></div>
+            <code>rock-64.png</code>
+          </div>
+        
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Tiling Sample</h2>
+      <p>A deterministic overlapped field preview using the same 32px cell and 46px sprite sizing as the client renderer.</p>
+      <div class="stage-wrap">
+        <div class="stage" id="stage"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const variants = ["rock-01.png","rock-02.png","rock-03.png","rock-04.png","rock-05.png","rock-06.png","rock-07.png","rock-08.png","rock-09.png","rock-10.png","rock-11.png","rock-12.png","rock-13.png","rock-14.png","rock-15.png","rock-16.png","rock-17.png","rock-18.png","rock-19.png","rock-20.png","rock-21.png","rock-22.png","rock-23.png","rock-24.png","rock-25.png","rock-26.png","rock-27.png","rock-28.png","rock-29.png","rock-30.png","rock-31.png","rock-32.png","rock-33.png","rock-34.png","rock-35.png","rock-36.png","rock-37.png","rock-38.png","rock-39.png","rock-40.png","rock-41.png","rock-42.png","rock-43.png","rock-44.png","rock-45.png","rock-46.png","rock-47.png","rock-48.png","rock-49.png","rock-50.png","rock-51.png","rock-52.png","rock-53.png","rock-54.png","rock-55.png","rock-56.png","rock-57.png","rock-58.png","rock-59.png","rock-60.png","rock-61.png","rock-62.png","rock-63.png","rock-64.png"];
+    const tileSize = 32;
+    const spriteSize = 46;
+    const spriteInset = 7;
+    const columns = 8;
+    const rows = 8;
+    const stage = document.getElementById("stage");
+
+    function hashCell(x, y) {
+      let hash = 2166136261;
+      const text = String(x) + ":" + String(y);
+      for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619) >>> 0;
+      }
+      return hash >>> 0;
+    }
+
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < columns; x += 1) {
+        const variant = variants[hashCell(x, y) % variants.length];
+        const img = document.createElement("img");
+        img.src = "./" + variant;
+        img.alt = variant;
+        img.style.left = String(x * tileSize - spriteInset) + "px";
+        img.style.top = String(y * tileSize - spriteInset) + "px";
+        stage.appendChild(img);
+      }
+    }
+  </script>
+</body>
+</html>

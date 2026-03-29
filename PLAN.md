@@ -46,36 +46,28 @@ The following major milestones are already implemented in the current prototype 
 - startup logs include configured and resolved log level
 - resource pickup, ship-build success/failure, connection lifecycle, and inventory sync diagnostics are logged
 
+9. Terrain sprite pipeline and first-pass rock art
+- client terrain rendering now uses sprite assets instead of flat primitive rock cells
+- shared terrain art selection derives deterministic `1-64` tile variants from stable map and cell inputs
+- first-pass rock terrain assets now exist as generated PNG clusters with slight tile overlap for more natural silhouettes
+- terrain textures preload on the client and terrain preview tooling exists for fast art iteration
+- tests cover stable terrain variant selection and the asset flow now builds cleanly through the normal client pipeline
+
 ## Summary
 
 The next phase should shift from proving core loop structure to making the game readable, navigable, and spatially coherent. The current multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, and persistence working well enough that the biggest missing pieces are presentation and world readability.
 
 The priority for the next phase is:
 
-1. sprite-based world rendering, starting with terrain
-2. ship, NPC, foundry, and structure sprite support
-3. authoritative collision and movement constraints
-4. visibility, line-of-sight, and player memory of explored terrain
-5. acceptance-test expansion around these spatial systems
+1. ship, NPC, foundry, and structure sprite support
+2. authoritative collision and movement constraints
+3. visibility, line-of-sight, and player memory of explored terrain
+4. acceptance-test expansion around these spatial systems
+5. follow-up terrain polish only if readability issues remain after entity and spatial systems land
 
 ## Key Changes
 
-### 1. Terrain sprite pipeline and visual variety
-
-- replace the current flat rendered rock tiles with sprite-based terrain rendering on the client
-- generate or source approximately 64 terrain-rock variations for the current solid terrain type
-- during map generation, assign each solid terrain cell a stable sprite variant from `1-64` so the map looks naturally varied instead of repeated
-- keep the terrain variant assignment deterministic so reconnects and re-renders show the same rock layout for the same persisted terrain state
-- preserve support for mined/destructible terrain, meaning the sprite disappears or changes correctly when a tile is removed
-
-Important implementation notes:
-
-- introduce a terrain asset manifest and loading path in the client
-- expand chunk/tile state only as much as needed to support stable variant selection
-- prefer deterministic variant selection from tile coordinates plus map seed unless persisted overrides are needed
-- keep the first pass limited to the current rock terrain; do not introduce multiple biome art sets yet unless the pipeline makes that trivial
-
-### 2. Sprite support for ships, NPCs, foundries, and structures
+### 1. Sprite support for ships, NPCs, foundries, and structures
 
 - move player ships off primitive graphics and onto sprite assets
 - add sprite rendering for at least:
@@ -93,7 +85,7 @@ Important implementation notes:
 - keep a fallback path so missing assets fail visibly but do not crash the client
 - avoid baking gameplay meaning into ad hoc client-only names; asset keys should align with shared/content ids where practical
 
-### 3. Authoritative collision and movement constraints
+### 2. Authoritative collision and movement constraints
 
 - prevent ships from moving through solid terrain
 - prevent ships from overlapping major structures such as foundries and builder sites
@@ -111,7 +103,7 @@ Important implementation notes:
 - if full sliding movement is too much for the first pass, snapping or blocked-axis movement is acceptable as long as it feels consistent
 - add hooks so later weapon/projectile collision with terrain can reuse the same solidity rules
 
-### 4. Visibility, line of sight, and terrain memory
+### 3. Visibility, line of sight, and terrain memory
 
 - players should not see through solid terrain
 - each player should only have live vision within a local visual radius and unobstructed line of sight
@@ -129,7 +121,7 @@ Important implementation notes:
 - choose a line-of-sight approach that fits the tile grid and current scope, such as ray sampling or flood-fill with occlusion
 - the HUD/minimap should eventually reflect explored-vs-currently-visible state, but the main world view is the first target
 
-### 5. Persistence and acceptance hardening for spatial systems
+### 4. Persistence and acceptance hardening for spatial systems
 
 - validate that terrain variants remain stable across reconnects and reloads
 - validate that collision prevents illegal positions after reconnect and map transitions
@@ -157,6 +149,12 @@ Add or update automated scenarios for:
   - destroy the root foundry
   - unlock and enter the deeper route
   - reconnect without losing stable terrain presentation
+
+Optional terrain-art follow-up checks, only if later phases reveal a need:
+
+- terrain clusters remain readable when mixed with ship, pickup, and structure sprites
+- tile overlap does not create distracting seams or ambiguity at chokepoints
+- future biome or terrain-set expansion can reuse the current variant selection and preview workflow cleanly
 
 ## Assumptions
 

@@ -1,33 +1,36 @@
 {
-  "name": "healer-and-destroyer",
-  "private": true,
-  "version": "0.1.0",
-  "packageManager": "pnpm@10.0.0",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "build": "npm run build:packages && npm run build:client",
-    "build:packages": "tsc -b tsconfig.build.json",
-    "build:client": "npm run build --workspace @healer/client",
-    "dev:server": "npm run dev --workspace @healer/server",
-    "dev:client": "npm run dev --workspace @healer/client",
-    "test": "vitest run"
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@types/pg": "^8.20.0",
-    "@types/ws": "^8.18.1",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.3",
-    "vite": "^6.3.5",
-    "vitest": "^3.2.4"
-  },
-  "dependencies": {
-    "pg": "^8.16.0",
-    "pixi.js": "^8.10.1",
-    "ws": "^8.18.3",
-    "zod": "^3.24.4"
-  }
+    "name":  "healer-and-destroyer",
+    "private":  true,
+    "version":  "0.1.0",
+    "packageManager":  "pnpm@10.0.0",
+    "workspaces":  [
+                       "apps/*",
+                       "packages/*"
+                   ],
+    "scripts":  {
+                    "build":  "npm run build:packages \u0026\u0026 npm run build:client",
+                    "build:packages":  "tsc -b tsconfig.build.json",
+                    "build:client":  "npm run build --workspace @healer/client",
+                    "dev:server":  "npm run dev --workspace @healer/server",
+                    "dev:client":  "npm run dev --workspace @healer/client",
+                    "generate:terrain-rock":  "node scripts/generate-terrain-rock-sprites.mjs",
+                    "render:terrain-rock-preview":  "node scripts/render-terrain-rock-preview.mjs",
+                    "preview:terrain-rock":  "npm run generate:terrain-rock \u0026\u0026 npm run render:terrain-rock-preview",
+                    "test":  "vitest run"
+                },
+    "devDependencies":  {
+                            "@types/node":  "^24.0.0",
+                            "@types/pg":  "^8.20.0",
+                            "@types/ws":  "^8.18.1",
+                            "tsx":  "^4.19.3",
+                            "typescript":  "^5.8.3",
+                            "vite":  "^6.3.5",
+                            "vitest":  "^3.2.4"
+                        },
+    "dependencies":  {
+                         "pg":  "^8.16.0",
+                         "pixi.js":  "^8.10.1",
+                         "ws":  "^8.18.3",
+                         "zod":  "^3.24.4"
+                     }
 }
