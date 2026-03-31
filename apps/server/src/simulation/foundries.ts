@@ -1,5 +1,6 @@
 import { enemyDefinitions } from "@healer/content";
 import { asEntityId, distance, type ActiveMapState, type FoundryState } from "@healer/shared";
+import { findNearestValidPosition, getEnemyCollisionRadius } from "./collision.js";
 
 export interface FoundryDamageResult {
   hit: boolean;
@@ -52,14 +53,18 @@ export function tickFoundries(map: ActiveMapState, now: number, spawnIdFactory: 
 
     const enemyDefinition = enemyDefinitions[foundry.activeEnemyCount % enemyDefinitions.length];
     const enemyId = asEntityId(spawnIdFactory());
+    const desiredPosition = {
+      x: foundry.position.x + 24 + foundry.activeEnemyCount * 8,
+      y: foundry.position.y + 12
+    };
     map.enemies[enemyId] = {
       id: enemyId,
       mapId: map.id,
       enemyTypeId: enemyDefinition.id,
-      position: {
-        x: foundry.position.x + 24 + foundry.activeEnemyCount * 8,
-        y: foundry.position.y + 12
-      },
+      position: findNearestValidPosition(map, desiredPosition, getEnemyCollisionRadius({ enemyTypeId: enemyDefinition.id }), {
+        includePlayers: true,
+        includeEnemies: true
+      }),
       velocity: { x: 0, y: 0 },
       rotation: 0,
       health: enemyDefinition.maxHealth,

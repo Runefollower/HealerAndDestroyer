@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { asPlayerId } from "@healer/shared";
+import { asPlayerId, distance } from "@healer/shared";
 import { GameWorld } from "./gameWorld.js";
+import { getPlayerShipCollisionRadius, getStructureCollisionRadius, isPositionBlocked } from "./collision.js";
 
 describe("GameWorld", () => {
   beforeEach(() => {
@@ -54,6 +55,45 @@ describe("GameWorld", () => {
 
     expect(player.position.y).toBeGreaterThan(startY);
     expect(Math.abs(player.position.y - startY)).toBeGreaterThan(Math.abs(player.position.x - startX));
+  });
+
+  it("blocks ships from moving through solid terrain", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    player.position = { x: 48, y: 16 };
+    player.velocity = { x: -720, y: 0 };
+
+    await world.tick();
+
+    expect(player.position.x).toBe(48);
+    expect(player.velocity.x).toBe(0);
+  });
+
+  it("blocks ships from overlapping major structures", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    const builder = Object.values(rootMap.structures)[0];
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
+
+    player.position = { x: builder.position.x - 52, y: builder.position.y };
+    player.velocity = { x: 480, y: 0 };
+
+    await world.tick();
+
+    expect(player.velocity.x).toBe(0);
+    expect(distance(player.position, builder.position)).toBeGreaterThanOrEqual(
+      getPlayerShipCollisionRadius(player) + getStructureCollisionRadius(builder.structureTypeId)
+    );
   });
 
   it("requires a mining tool for terrain mining and persists chunk edits on reload", async () => {
@@ -259,6 +299,38 @@ describe("GameWorld", () => {
     });
 
     expect(rootMap.players["player-1"].hull).toBeGreaterThan(80);
+  });
+
+  it("places map transitions on the nearest valid non-colliding position", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const foundry = Object.values(rootMap.foundries)[0];
+    if (!foundry) {
+      throw new Error("Expected root foundry.");
+    }
+
+    foundry.active = false;
+    foundry.buildState = "destroyed";
+
+    await world.handleMessage("player-1", {
+      type: "changeMap",
+      connectionId: "conn-root-depth-1"
+    });
+
+    const depthMap = world.runtime.maps["map-depth-1"];
+    const player = depthMap.players["player-1"];
+    expect(player.mapId).toBe("map-depth-1");
+    expect(player.position).not.toEqual({ x: 32, y: 192 });
+    expect(
+      isPositionBlocked(depthMap, player.position, getPlayerShipCollisionRadius(player), {
+        excludeEntityId: player.id,
+        includePlayers: true,
+        includeEnemies: true
+      })
+    ).toBe(false);
   });
 
   it("spawns foundry enemies, unlocks the deeper path after foundry destruction, and restores state after reconnect", async () => {

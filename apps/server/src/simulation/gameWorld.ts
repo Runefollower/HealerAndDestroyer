@@ -27,6 +27,7 @@ import {
 } from "@healer/shared";
 import { createDefaultPlayerSave, createRuntimeState, createWorldGraph } from "./createWorld.js";
 import { tickFoundries, applyFoundryDamage, isDeeperPathUnlocked, refreshFoundryEnemyCounts } from "./foundries.js";
+import { findNearestValidPosition, getEnemyCollisionRadius, getPlayerShipCollisionRadius, resolveMovement } from "./collision.js";
 import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
@@ -92,7 +93,12 @@ export class GameWorld {
 
     const activeShip = resolveActiveShip(player);
     const map = this.runtime.maps[player.spawnPoint.mapId];
-    map.players[playerId] = createRuntimeShip(playerId, activeShip, player);
+    const runtimeShip = createRuntimeShip(playerId, activeShip, player);
+    runtimeShip.position = findNearestValidPosition(map, runtimeShip.position, getPlayerShipCollisionRadius(runtimeShip), {
+      includePlayers: true,
+      includeEnemies: true
+    });
+    map.players[playerId] = runtimeShip;
 
     this.sessions.set(playerId, {
       playerId,
@@ -209,8 +215,14 @@ export class GameWorld {
 
   private tickPlayers(map: ActiveMapState, deltaSeconds: number): void {
     for (const player of Object.values(map.players)) {
-      player.position.x += player.velocity.x * deltaSeconds;
-      player.position.y += player.velocity.y * deltaSeconds;
+      const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
+        radius: getPlayerShipCollisionRadius(player),
+        excludeEntityId: player.id,
+        includePlayers: true,
+        includeEnemies: true
+      });
+      player.position = resolved.position;
+      player.velocity = resolved.velocity;
       player.velocity.x *= 0.92;
       player.velocity.y *= 0.92;
     }
@@ -281,9 +293,16 @@ export class GameWorld {
         y: nearestPlayer.position.y - enemy.position.y
       });
       enemy.rotation = Math.atan2(direction.y, direction.x);
-      enemy.velocity = scaleVec2(direction, 20);
-      enemy.position.x += enemy.velocity.x * deltaSeconds;
-      enemy.position.y += enemy.velocity.y * deltaSeconds;
+      const enemyDefinition = enemyDefinitions.find((entry) => entry.id === enemy.enemyTypeId);
+      enemy.velocity = scaleVec2(direction, enemyDefinition?.speed ?? 20);
+      const resolved = resolveMovement(map, enemy.position, enemy.velocity, deltaSeconds, {
+        radius: getEnemyCollisionRadius(enemy),
+        excludeEntityId: enemy.id,
+        includePlayers: true,
+        includeEnemies: true
+      });
+      enemy.position = resolved.position;
+      enemy.velocity = resolved.velocity;
 
       if (distance(enemy.position, nearestPlayer.position) < 18) {
         const previousHull = nearestPlayer.hull;
@@ -407,10 +426,19 @@ export class GameWorld {
     const destinationMap = this.runtime.maps[connection.destinationMapId];
     delete sourceMap.players[playerId];
     player.mapId = connection.destinationMapId;
-    player.position = {
-      x: (connection.destinationAnchor?.x ?? 1) * 32,
-      y: (connection.destinationAnchor?.y ?? 1) * 32
-    };
+    player.position = findNearestValidPosition(
+      destinationMap,
+      {
+        x: (connection.destinationAnchor?.x ?? 1) * 32,
+        y: (connection.destinationAnchor?.y ?? 1) * 32
+      },
+      getPlayerShipCollisionRadius(player),
+      {
+        includePlayers: true,
+        includeEnemies: true
+      }
+    );
+    player.velocity = { x: 0, y: 0 };
     destinationMap.players[playerId] = player;
   }
 

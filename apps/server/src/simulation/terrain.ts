@@ -1,6 +1,8 @@
 import { asEntityId, type ActiveMapState } from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
 
+export const TILE_SIZE = 32;
+
 export interface TileAddress {
   chunkKey: string;
   chunkX: number;
@@ -9,8 +11,8 @@ export interface TileAddress {
 }
 
 export function worldToTile(position: { x: number; y: number }): TileAddress | null {
-  const tileX = Math.floor(position.x / 32);
-  const tileY = Math.floor(position.y / 32);
+  const tileX = Math.floor(position.x / TILE_SIZE);
+  const tileY = Math.floor(position.y / TILE_SIZE);
   if (tileX < 0 || tileY < 0) {
     return null;
   }
