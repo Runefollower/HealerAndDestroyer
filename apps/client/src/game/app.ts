@@ -26,12 +26,12 @@ export async function bootstrapClient(): Promise<void> {
   const network = new NetworkClient();
   const store = createClientStore();
   let tick = 0;
-  let mouseWorld = { x: 0, y: 0 };
+  let mouseScreen = { x: app.screen.width / 2, y: app.screen.height / 2 };
   let clockOffsetMs = 0;
 
   attachInputListeners(input);
   window.addEventListener("mousemove", (event) => {
-    mouseWorld = { x: event.clientX, y: event.clientY };
+    mouseScreen = { x: event.clientX, y: event.clientY };
   });
   window.addEventListener("keydown", (event) => {
     if (event.repeat) {
@@ -151,6 +151,9 @@ export async function bootstrapClient(): Promise<void> {
 
     const snapshot = store.latestSnapshot;
     if (snapshot) {
+      updateCamera(worldLayer, snapshot, app.screen.width, app.screen.height);
+      const mouseWorld = screenToWorld(worldLayer, mouseScreen);
+
       const weaponModule = getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon);
       if (input.firePrimary && weaponModule && tick % 8 === 0) {
         network.send({
@@ -264,6 +267,20 @@ function handleServerMessage(
   return clockOffsetMs;
 }
 
+function updateCamera(worldLayer: Container, snapshot: SnapshotMessage, screenWidth: number, screenHeight: number): void {
+  const selfPlayer = snapshot.players.find((player) => player.playerId === snapshot.selfPlayerId);
+  if (!selfPlayer) {
+    return;
+  }
+
+  worldLayer.position.set(screenWidth / 2 - selfPlayer.position.x, screenHeight / 2 - selfPlayer.position.y);
+}
+
+function screenToWorld(worldLayer: Container, screen: { x: number; y: number }): { x: number; y: number } {
+  const local = worldLayer.toLocal(screen);
+  return { x: local.x, y: local.y };
+}
+
 function syncBuilderVisibility(builder: HTMLElement, store: ClientStore): void {
   const nearby = !!store.latestSnapshot?.builderSiteNearby;
   const visible = nearby && store.builderOpen;
@@ -354,5 +371,3 @@ function cycleSelectedModule(store: ClientStore, capability: ModuleSelectionCapa
   const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % matchingModules.length : 0;
   store.selectedModuleHardpoints[capability] = matchingModules[nextIndex].hardpointId;
 }
-
-

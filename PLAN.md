@@ -67,9 +67,14 @@ The following major milestones are already implemented in the current prototype 
 - the current pulse cannon now fires from the forward weapon mount along ship facing, and the primary fire control is mapped to `Space`
 - tests now cover collision constraints plus forward-mounted projectile spawning and travel direction
 
+12. Player-centered camera follow pass
+- the local player now stays centered on screen while the world scrolls underneath the ship
+- screen-to-world targeting now converts pointer input through the camera transform so mining still aims at the correct world location
+- the moment-to-moment view now reads more like a moving ship through space instead of a ship sliding across a static board
+
 ## Summary
 
-The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, and first-pass projectile readability working well enough that the biggest missing pieces are movement feel, visibility-driven world readability, and follow-up combat/environment interaction polish.
+The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, first-pass projectile readability, and a player-centered camera working well enough that the biggest missing pieces are visibility-driven world readability and follow-up combat/environment interaction polish.
 
 The priority for the next phase is:
 
@@ -132,6 +137,19 @@ Important implementation notes:
 
 - this pass improves readability and mount logic only; projectile-vs-terrain collision and impact flashes still belong to the next follow-up
 - future multi-weapon hulls should keep using hardpoint-local origin and orientation as the firing source of truth
+
+### 2.75 Player-centered camera follow
+
+Status: first pass complete.
+
+- the local player now remains centered on screen while terrain, structures, enemies, and projectiles move relative to the ship
+- world-space pointer targeting now resolves through the camera transform so utility actions still target the intended terrain location
+- this camera pass improves navigation readability without changing the authoritative gameplay state
+
+Important implementation notes:
+
+- the current follow camera is a direct lock to the local player position with no smoothing yet
+- if later playtesting reveals a need, camera look-ahead, damping, or screen-edge composition can be layered on top without changing the world simulation
 
 ### 3. Visibility, line of sight, and terrain memory
 
