@@ -85,6 +85,44 @@ describe("GameWorld", () => {
     expect(Math.abs(projectile.velocity.x)).toBeLessThan(0.001);
   });
 
+  it("destroys terrain on critical projectile impact and leaves debris", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    player.position = { x: 84, y: 16 };
+    player.rotation = Math.PI;
+
+    const startingCell = rootMap.chunks["0,0"].cells[0];
+    expect(startingCell).toBeGreaterThan(0);
+
+    await world.handleMessage("player-1", {
+      type: "fireWeapon",
+      weaponHardpointId: "weapon-front",
+      tick: 4
+    });
+
+    expect(Object.keys(rootMap.projectiles)).toHaveLength(1);
+
+    for (let index = 0; index < 6; index += 1) {
+      await world.tick();
+    }
+
+    expect(Object.keys(rootMap.projectiles)).toHaveLength(0);
+    expect(rootMap.chunks["0,0"].cells[0]).toBe(0);
+    expect(Object.values(rootMap.drops)).toContainEqual(
+      expect.objectContaining({
+        resources: expect.objectContaining({ ferrite: expect.any(Number) })
+      })
+    );
+
+    const reloadedWorld = new GameWorld(world.persistence);
+    await reloadedWorld.initialize();
+    expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[0]).toBe(0);
+  });
+
   it("blocks ships from moving through solid terrain", async () => {
     const world = new GameWorld();
     await world.initialize();

@@ -9,6 +9,24 @@ const terrainSpriteSize = 46;
 const terrainSpriteInset = (terrainSpriteSize - terrainTileSize) / 2;
 const projectileHistory = new Map<string, { x: number; y: number; seenAt: number }>();
 const projectileHistoryTtlMs = 1_500;
+const terrainBurstLifetimeMs = 420;
+const maxTerrainBursts = 24;
+let previousTerrainSnapshot: { mapId: string; cells: Map<string, TerrainCellRecord> } | null = null;
+const terrainBursts: TerrainBurst[] = [];
+
+interface TerrainCellRecord {
+  value: number;
+  x: number;
+  y: number;
+}
+
+interface TerrainBurst {
+  x: number;
+  y: number;
+  createdAt: number;
+  seed: number;
+  tint: number;
+}
 
 export interface HudSelections {
   weapon: string;
@@ -64,6 +82,9 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
 export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage): void {
   const now = typeof performance !== "undefined" ? performance.now() : Date.now();
   pruneProjectileHistory(snapshot.projectiles, now);
+  const terrainCells = buildTerrainCellMap(snapshot);
+  spawnTerrainBursts(snapshot.mapId, terrainCells, now);
+  pruneTerrainBursts(now);
   worldLayer.removeChildren();
 
   for (const chunk of snapshot.chunks) {
@@ -95,6 +116,11 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       }
       worldLayer.addChild(sprite);
     });
+  }
+
+  for (const burst of terrainBursts) {
+    const burstDisplay = createTerrainBurstEffect(burst, now);
+    worldLayer.addChild(burstDisplay);
   }
 
   for (const structure of snapshot.structures) {
@@ -164,6 +190,96 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     label.position.set(player.position.x - 12, player.position.y - 30);
     worldLayer.addChild(label);
   }
+
+  previousTerrainSnapshot = {
+    mapId: snapshot.mapId,
+    cells: terrainCells
+  };
+}
+
+function buildTerrainCellMap(snapshot: SnapshotMessage): Map<string, TerrainCellRecord> {
+  const cells = new Map<string, TerrainCellRecord>();
+  for (const chunk of snapshot.chunks) {
+    chunk.cells.forEach((cell, index) => {
+      if (cell === 0) {
+        return;
+      }
+      const localX = index % 8;
+      const localY = Math.floor(index / 8);
+      cells.set(`${chunk.chunkX}:${chunk.chunkY}:${index}`, {
+        value: cell,
+        x: (chunk.chunkX * 8 + localX) * terrainTileSize + terrainTileSize / 2,
+        y: (chunk.chunkY * 8 + localY) * terrainTileSize + terrainTileSize / 2
+      });
+    });
+  }
+  return cells;
+}
+
+function spawnTerrainBursts(mapId: string, nextCells: Map<string, TerrainCellRecord>, now: number): void {
+  if (!previousTerrainSnapshot || previousTerrainSnapshot.mapId !== mapId) {
+    return;
+  }
+
+  for (const [cellKey, previousCell] of previousTerrainSnapshot.cells.entries()) {
+    if (nextCells.has(cellKey)) {
+      continue;
+    }
+
+    terrainBursts.push({
+      x: previousCell.x,
+      y: previousCell.y,
+      createdAt: now,
+      seed: hashString(`${mapId}:${cellKey}:${now}`),
+      tint: terrainBurstTint(previousCell.value)
+    });
+  }
+}
+
+function pruneTerrainBursts(now: number): void {
+  const nextBursts = terrainBursts.filter((burst) => now - burst.createdAt <= terrainBurstLifetimeMs);
+  terrainBursts.length = 0;
+  terrainBursts.push(...nextBursts.slice(-maxTerrainBursts));
+}
+
+function terrainBurstTint(cellValue: number): number {
+  if (cellValue === 2) {
+    return 0x9ad7ff;
+  }
+  if (cellValue >= 3) {
+    return 0xc6d8e6;
+  }
+  return 0xb9a48a;
+}
+
+function createTerrainBurstEffect(burst: TerrainBurst, now: number): Container {
+  const age = Math.min(1, (now - burst.createdAt) / terrainBurstLifetimeMs);
+  const fade = 1 - age;
+  const container = new Container();
+  container.position.set(burst.x, burst.y);
+
+  const shock = new Graphics();
+  shock.circle(0, 0, 8 + age * 16).stroke({ color: burst.tint, width: Math.max(1, 3 * fade), alpha: 0.45 * fade });
+  container.addChild(shock);
+
+  const dust = new Graphics();
+  dust.circle(0, 0, 4 + age * 10).fill(burst.tint);
+  dust.alpha = 0.12 * fade;
+  container.addChild(dust);
+
+  for (let index = 0; index < 6; index += 1) {
+    const shardSeed = burst.seed + index * 83;
+    const angle = ((shardSeed % 360) * Math.PI) / 180;
+    const distance = 4 + age * (10 + (shardSeed % 9));
+    const shard = new Graphics();
+    shard.roundRect(-2.2, -1.1, 4.4, 2.2, 1).fill(burst.tint);
+    shard.alpha = 0.75 * fade;
+    shard.position.set(Math.cos(angle) * distance, Math.sin(angle) * distance * 0.75);
+    shard.rotation = angle + age * 2.2;
+    container.addChild(shard);
+  }
+
+  return container;
 }
 
 function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Container {

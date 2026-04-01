@@ -152,6 +152,33 @@ export function findNearestValidPosition(
   return { ...desired };
 }
 
+export function findTerrainImpactAlongPath(map: ActiveMapState, start: Vec2, end: Vec2, radius: number): Vec2 | null {
+  if (collidesWithTerrain(map, start, radius)) {
+    return { ...start };
+  }
+
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const travelDistance = Math.hypot(deltaX, deltaY);
+  if (travelDistance === 0) {
+    return collidesWithTerrain(map, end, radius) ? { ...end } : null;
+  }
+
+  const steps = Math.max(1, Math.ceil(travelDistance / Math.max(2, TILE_SIZE / 4)));
+  for (let step = 1; step <= steps; step += 1) {
+    const t = step / steps;
+    const sample = {
+      x: start.x + deltaX * t,
+      y: start.y + deltaY * t
+    };
+    if (collidesWithTerrain(map, sample, radius)) {
+      return sample;
+    }
+  }
+
+  return null;
+}
+
 function collidesWithTerrain(map: ActiveMapState, position: Vec2, radius: number): boolean {
   const minTileX = Math.floor((position.x - radius) / TILE_SIZE);
   const maxTileX = Math.floor((position.x + radius) / TILE_SIZE);
@@ -193,7 +220,39 @@ function isSolidTile(map: ActiveMapState, tileX: number, tileY: number): boolean
     return true;
   }
 
-  return (chunk.cells[localY * CHUNK_SIZE + localX] ?? 0) !== 0;
+  const cellValue = chunk.cells[localY * CHUNK_SIZE + localX] ?? 0;
+  if (cellValue === 0) {
+    return false;
+  }
+
+  return !isTileOccupiedByStructure(map, tileX, tileY);
+}
+
+function isTileOccupiedByStructure(map: ActiveMapState, tileX: number, tileY: number): boolean {
+  const tileCenter = {
+    x: tileX * TILE_SIZE + TILE_SIZE / 2,
+    y: tileY * TILE_SIZE + TILE_SIZE / 2
+  };
+
+  for (const structure of Object.values(map.structures)) {
+    if (structure.buildState === "destroyed") {
+      continue;
+    }
+    if (distance(tileCenter, structure.position) <= getStructureCollisionRadius(structure.structureTypeId)) {
+      return true;
+    }
+  }
+
+  for (const foundry of Object.values(map.foundries)) {
+    if (foundry.buildState === "destroyed" || !foundry.active) {
+      continue;
+    }
+    if (distance(tileCenter, foundry.position) <= getStructureCollisionRadius(foundry.structureTypeId)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function circleIntersectsRect(

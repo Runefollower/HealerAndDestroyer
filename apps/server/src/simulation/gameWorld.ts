@@ -27,10 +27,11 @@ import {
 } from "@healer/shared";
 import { createDefaultPlayerSave, createRuntimeState, createWorldGraph } from "./createWorld.js";
 import { tickFoundries, applyFoundryDamage, isDeeperPathUnlocked, refreshFoundryEnemyCounts } from "./foundries.js";
-import { findNearestValidPosition, getEnemyCollisionRadius, getPlayerShipCollisionRadius, resolveMovement } from "./collision.js";
+import { findNearestValidPosition, findTerrainImpactAlongPath, getEnemyCollisionRadius, getPlayerShipCollisionRadius, resolveMovement } from "./collision.js";
 import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
+import { damageTerrainAt } from "./terrain.js";
 import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncPlayerSaveFromRuntime, syncRuntimeInventoryFromSave, syncRuntimeShipFromSave } from "./shipLifecycle.js";
 
 interface PlayerSessionState {
@@ -230,9 +231,21 @@ export class GameWorld {
 
   private tickProjectiles(map: ActiveMapState, deltaMs: number): void {
     for (const projectile of Object.values(map.projectiles)) {
+      const previousPosition = { ...projectile.position };
       projectile.position.x += projectile.velocity.x * (deltaMs / 1000);
       projectile.position.y += projectile.velocity.y * (deltaMs / 1000);
       projectile.lifetimeMs -= deltaMs;
+
+      const terrainImpact = findTerrainImpactAlongPath(map, previousPosition, projectile.position, 2);
+      if (terrainImpact) {
+        projectile.position = terrainImpact;
+        const terrainDamage = damageTerrainAt(map, terrainImpact, projectile.damage, this.tickCounter, 0.75);
+        if (terrainDamage.destroyed) {
+          void this.persistence.maps.saveMapState(this.worldId, serializeMapState(map, this.persistentWorld.maps[map.id]));
+        }
+        delete map.projectiles[projectile.id];
+        continue;
+      }
 
       const enemy = Object.values(map.enemies).find((entry) => distance(entry.position, projectile.position) < 14);
       if (enemy) {

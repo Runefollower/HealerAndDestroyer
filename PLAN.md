@@ -72,16 +72,23 @@ The following major milestones are already implemented in the current prototype 
 - screen-to-world targeting now converts pointer input through the camera transform so mining still aims at the correct world location
 - the moment-to-moment view now reads more like a moving ship through space instead of a ship sliding across a static board
 
+13. Projectile terrain destruction and shatter feedback
+- projectiles now collide with solid terrain authoritatively instead of tunneling through cave walls
+- critical projectile impacts now destroy terrain cells, persist the terrain edit, and leave salvage debris behind
+- terrain occupied by active major structures is treated as structure space so foundries remain hittable where they are placed
+- the client now shows a visible burst when terrain disappears so mining and weapon destruction both read clearly on screen
+- tests now cover projectile terrain impact, terrain destruction, debris spawning, and persistence after reload
+
 ## Summary
 
-The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, first-pass projectile readability, and a player-centered camera working well enough that the biggest missing pieces are visibility-driven world readability and follow-up combat/environment interaction polish.
+The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, and a player-centered camera working well enough that the biggest missing pieces are visibility-driven world readability and broader combat/environment polish.
 
 The priority for the next phase is:
 
 1. visibility, line-of-sight, and player memory of explored terrain
-2. projectile-vs-terrain collision plus impact feedback that builds on the new collision rules
-3. acceptance-test expansion around these spatial systems
-4. follow-up terrain and entity readability polish only if issues remain after visibility and combat readability land
+2. acceptance-test expansion around these spatial systems
+3. follow-up terrain and combat readability polish only if issues remain after visibility lands
+4. next-step combat interactions that build on the new terrain destruction rules
 
 ## Key Changes
 
@@ -151,6 +158,20 @@ Important implementation notes:
 - the current follow camera is a direct lock to the local player position with no smoothing yet
 - if later playtesting reveals a need, camera look-ahead, damping, or screen-edge composition can be layered on top without changing the world simulation
 
+### 2.9 Projectile terrain destruction and impact feedback
+
+Status: first pass complete.
+
+- projectiles now stop on solid terrain instead of flying through intact rock
+- critical projectile impacts now destroy terrain cells, persist the terrain edit, and drop debris into the existing salvage system
+- the client now renders a visible terrain burst when a tile disappears so mining and weapon-driven destruction are easy to read
+- active structures and foundries continue to take projectile hits even when their footprint overlaps generated terrain
+
+Important implementation notes:
+
+- the current destruction rule is threshold-based per terrain cell type rather than a long-lived per-tile health simulation
+- the impact burst is currently inferred from terrain cells disappearing between snapshots, which keeps the client lightweight and works for both mining and weapon destruction
+
 ### 3. Visibility, line of sight, and terrain memory
 
 - players should not see through solid terrain
@@ -186,6 +207,7 @@ Add or update automated scenarios for:
 - ships cannot overlap foundries or builder sites
 - map transitions place the player in valid non-colliding positions
 - forward-mounted weapons spawn projectiles from the correct hardpoint and fire along ship facing
+- critical projectile hits destroy terrain, spawn debris, and persist after reload
 - visibility hides terrain behind walls until line of sight is established
 - explored terrain remains visible in memory as greyed-out state when outside current vision
 - explored terrain memory does not update while the area is out of sight
