@@ -156,7 +156,6 @@ export async function bootstrapClient(): Promise<void> {
         network.send({
           type: "fireWeapon",
           weaponHardpointId: weaponModule.hardpointId,
-          targetWorld: mouseWorld,
           tick
         });
       }

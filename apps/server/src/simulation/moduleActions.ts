@@ -1,5 +1,5 @@
-import { getModuleDefinition, weaponDefinitions } from "@healer/content";
-import { distance, normalize, scaleVec2, type ActiveMapState, type ActivateModuleMessage, type EntityId, type FireWeaponMessage, type PlayerShipState } from "@healer/shared";
+import { getHullDefinition, getModuleDefinition, weaponDefinitions } from "@healer/content";
+import { distance, normalize, scaleVec2, type ActiveMapState, type ActivateModuleMessage, type EntityId, type FireWeaponMessage, type PlayerShipState, type Vec2 } from "@healer/shared";
 import { mineTerrainAt } from "./terrain.js";
 
 export interface ActionAttemptResult {
@@ -49,16 +49,21 @@ export function applyWeaponFire(
     return { ok: false, code: "weapon_on_cooldown", hardpointId: installedModule.hardpointId };
   }
 
-  const direction = normalize({
-    x: (message.targetWorld?.x ?? player.position.x + 1) - player.position.x,
-    y: (message.targetWorld?.y ?? player.position.y) - player.position.y
-  });
+  const hull = getHullDefinition(player.hullId);
+  const hardpoint = hull.hardpoints.find((entry) => entry.id === installedModule.hardpointId);
+  const direction = hardpoint ? rotateVec2(directionFromOrientation(hardpoint.orientation), player.rotation) : facingDirection(player.rotation);
+  const mountOffset = hardpoint ? rotateVec2(hardpoint.localPosition, player.rotation) : scaleVec2(direction, 12);
+  const spawnPosition = {
+    x: player.position.x + mountOffset.x + direction.x * 8,
+    y: player.position.y + mountOffset.y + direction.y * 8
+  };
+
   const projectileId = projectileIdFactory();
   map.projectiles[projectileId] = {
     id: projectileId,
     mapId: player.mapId,
     ownerPlayerId: player.playerId,
-    position: { ...player.position },
+    position: spawnPosition,
     velocity: scaleVec2(direction, weapon.range),
     damage: weapon.damage,
     lifetimeMs: weapon.cooldownMs * 3
@@ -121,4 +126,42 @@ export function activateInstalledModule(
   }
 
   return { ok: false, code: "module_capability_missing", hardpointId: installedModule.hardpointId };
+}
+
+function facingDirection(rotation: number): Vec2 {
+  return normalize({
+    x: Math.cos(rotation),
+    y: Math.sin(rotation)
+  });
+}
+
+function directionFromOrientation(orientation: string): Vec2 {
+  switch (orientation) {
+    case "north":
+      return { x: 0, y: -1 };
+    case "south":
+      return { x: 0, y: 1 };
+    case "west":
+      return { x: -1, y: 0 };
+    case "northEast":
+      return normalize({ x: 1, y: -1 });
+    case "northWest":
+      return normalize({ x: -1, y: -1 });
+    case "southEast":
+      return normalize({ x: 1, y: 1 });
+    case "southWest":
+      return normalize({ x: -1, y: 1 });
+    case "east":
+    default:
+      return { x: 1, y: 0 };
+  }
+}
+
+function rotateVec2(vector: Vec2, rotation: number): Vec2 {
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  return {
+    x: vector.x * cos - vector.y * sin,
+    y: vector.x * sin + vector.y * cos
+  };
 }

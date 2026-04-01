@@ -57,6 +57,34 @@ describe("GameWorld", () => {
     expect(Math.abs(player.position.y - startY)).toBeGreaterThan(Math.abs(player.position.x - startX));
   });
 
+  it("spawns weapon projectiles from the front hardpoint and fires along ship heading", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    player.position = { x: 120, y: 120 };
+    player.rotation = Math.PI / 2;
+
+    await world.handleMessage("player-1", {
+      type: "fireWeapon",
+      weaponHardpointId: "weapon-front",
+      targetWorld: { x: -500, y: -500 },
+      tick: 3
+    });
+
+    const projectile = Object.values(rootMap.projectiles)[0];
+    if (!projectile) {
+      throw new Error("Expected projectile to be spawned.");
+    }
+
+    expect(projectile.position.y).toBeGreaterThan(player.position.y + 10);
+    expect(Math.abs(projectile.position.x - player.position.x)).toBeLessThan(1);
+    expect(projectile.velocity.y).toBeGreaterThan(0);
+    expect(Math.abs(projectile.velocity.x)).toBeLessThan(0.001);
+  });
+
   it("blocks ships from moving through solid terrain", async () => {
     const world = new GameWorld();
     await world.initialize();

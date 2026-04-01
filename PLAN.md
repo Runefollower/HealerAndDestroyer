@@ -60,16 +60,23 @@ The following major milestones are already implemented in the current prototype 
 - client asset loading now includes a lightweight world-entity registry with visible fallbacks for missing sprite keys
 - the current readability pass keeps labels and hull-state overlays where useful while moving the world view onto sprite-backed presentation
 
+11. Authoritative collision and first-pass weapon readability
+- ships now collide authoritatively with solid terrain, foundries, builder sites, and simple ship/enemy bodies on the server
+- player connect, enemy spawn, and map transitions now resolve to valid non-colliding positions instead of trusting raw anchors
+- client projectile rendering now shows animated pulse shots instead of invisible weapon fire
+- the current pulse cannon now fires from the forward weapon mount along ship facing, and the primary fire control is mapped to `Space`
+- tests now cover collision constraints plus forward-mounted projectile spawning and travel direction
+
 ## Summary
 
-The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, and first-pass entity sprites working well enough that the biggest missing pieces are movement feel, collision, and visibility-driven world readability.
+The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, and first-pass projectile readability working well enough that the biggest missing pieces are movement feel, visibility-driven world readability, and follow-up combat/environment interaction polish.
 
 The priority for the next phase is:
 
-1. authoritative collision and movement constraints
-2. visibility, line-of-sight, and player memory of explored terrain
+1. visibility, line-of-sight, and player memory of explored terrain
+2. projectile-vs-terrain collision plus impact feedback that builds on the new collision rules
 3. acceptance-test expansion around these spatial systems
-4. follow-up terrain and entity readability polish only if issues remain after collision and visibility land
+4. follow-up terrain and entity readability polish only if issues remain after visibility and combat readability land
 
 ## Key Changes
 
@@ -95,21 +102,36 @@ Important implementation notes:
 
 ### 2. Authoritative collision and movement constraints
 
-- prevent ships from moving through solid terrain
-- prevent ships from overlapping major structures such as foundries and builder sites
-- prevent unrealistic overlap with other ships if that can be done simply in this phase
-- keep collision authoritative on the server, with the client following replicated resolution rather than inventing its own truth
-- update mining, navigation, and combat expectations so terrain actually matters as navigable space
+Status: complete for the first gameplay pass.
+
+- ships now stop against solid terrain instead of passing through mined and unmined rock cells
+- ships now stop against major structures such as foundries and builder sites
+- simple ship and enemy body separation now exists to avoid the worst overlap cases in the current phase
+- collision remains authoritative on the server, with clients following replicated results
+- player connect, enemy spawn, and map transitions now resolve onto valid non-colliding positions
 
 Important implementation notes:
 
-- start with simple collision shapes:
+- the current pass uses simple collision shapes:
   - terrain tiles as solid grid cells
-  - structures/foundries as circles or AABBs
-  - ships as circles or simple radii
-- prefer a stable and predictable collision response over a highly physical one
-- if full sliding movement is too much for the first pass, snapping or blocked-axis movement is acceptable as long as it feels consistent
-- add hooks so later weapon/projectile collision with terrain can reuse the same solidity rules
+  - structures/foundries as circles
+  - ships and enemies as simple radii
+- movement resolution currently favors stable blocked-axis behavior over full physical sliding
+- the collision helper now provides a reuse point for the next projectile-vs-terrain and impact pass
+
+### 2.5 Weapon presentation and firing readability
+
+Status: first pass complete, follow-up still needed.
+
+- primary weapon fire now originates from the mounted forward weapon hardpoint rather than the ship center
+- the current pulse cannon now fires straight along ship facing instead of steering toward the mouse cursor
+- the client now renders animated projectile pulses so weapon fire is visually legible during movement and combat
+- primary fire is now mapped to `Space`, with support/repair moved off that key to keep the weapon loop comfortable
+
+Important implementation notes:
+
+- this pass improves readability and mount logic only; projectile-vs-terrain collision and impact flashes still belong to the next follow-up
+- future multi-weapon hulls should keep using hardpoint-local origin and orientation as the firing source of truth
 
 ### 3. Visibility, line of sight, and terrain memory
 
@@ -145,6 +167,7 @@ Add or update automated scenarios for:
 - ships cannot move through solid terrain
 - ships cannot overlap foundries or builder sites
 - map transitions place the player in valid non-colliding positions
+- forward-mounted weapons spawn projectiles from the correct hardpoint and fire along ship facing
 - visibility hides terrain behind walls until line of sight is established
 - explored terrain remains visible in memory as greyed-out state when outside current vision
 - explored terrain memory does not update while the area is out of sight
