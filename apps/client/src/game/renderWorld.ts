@@ -89,7 +89,8 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
 
   for (const chunk of snapshot.chunks) {
     chunk.cells.forEach((cell, index) => {
-      if (cell === 0) {
+      const cellVisibility = chunk.visibility[index] ?? 0;
+      if (cellVisibility === 0 || cell === 0) {
         return;
       }
       const localX = index % 8;
@@ -113,6 +114,10 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       }
       if (cell >= 3) {
         sprite.tint = 0xb7ccd8;
+      }
+      if (cellVisibility === 1) {
+        sprite.tint = cell === 2 ? 0x8fa3b2 : 0x7f8a95;
+        sprite.alpha *= 0.7;
       }
       worldLayer.addChild(sprite);
     });
@@ -189,6 +194,11 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     });
     label.position.set(player.position.x - 12, player.position.y - 30);
     worldLayer.addChild(label);
+  }
+
+  const fogOverlay = createVisibilityOverlay(snapshot);
+  if (fogOverlay) {
+    worldLayer.addChild(fogOverlay);
   }
 
   previousTerrainSnapshot = {
@@ -334,6 +344,49 @@ function hashString(value: string): number {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   }
   return hash;
+}
+
+function createVisibilityOverlay(snapshot: SnapshotMessage): Container | null {
+  const hiddenFog = new Graphics();
+  const memoryFog = new Graphics();
+  let hasHiddenTiles = false;
+  let hasRememberedTiles = false;
+
+  for (const chunk of snapshot.chunks) {
+    chunk.visibility.forEach((cellVisibility, index) => {
+      if (cellVisibility === 2) {
+        return;
+      }
+
+      const localX = index % 8;
+      const localY = Math.floor(index / 8);
+      const x = (chunk.chunkX * 8 + localX) * terrainTileSize;
+      const y = (chunk.chunkY * 8 + localY) * terrainTileSize;
+      if (cellVisibility === 1) {
+        memoryFog.rect(x, y, terrainTileSize, terrainTileSize).fill(0x0b1218);
+        hasRememberedTiles = true;
+        return;
+      }
+
+      hiddenFog.rect(x, y, terrainTileSize, terrainTileSize).fill(0x02060b);
+      hasHiddenTiles = true;
+    });
+  }
+
+  if (!hasHiddenTiles && !hasRememberedTiles) {
+    return null;
+  }
+
+  const container = new Container();
+  if (hasRememberedTiles) {
+    memoryFog.alpha = 0.42;
+    container.addChild(memoryFog);
+  }
+  if (hasHiddenTiles) {
+    hiddenFog.alpha = 0.9;
+    container.addChild(hiddenFog);
+  }
+  return container;
 }
 
 function describeObjective(snapshot: SnapshotMessage): string {

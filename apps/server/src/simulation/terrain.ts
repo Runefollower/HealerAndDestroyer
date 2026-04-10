@@ -4,6 +4,8 @@ import { CHUNK_SIZE } from "./createWorld.js";
 export const TILE_SIZE = 32;
 
 export interface TileAddress {
+  tileX: number;
+  tileY: number;
   chunkKey: string;
   chunkX: number;
   chunkY: number;
@@ -28,6 +30,8 @@ export function worldToTile(position: { x: number; y: number }): TileAddress | n
   const localX = tileX % CHUNK_SIZE;
   const localY = tileY % CHUNK_SIZE;
   return {
+    tileX,
+    tileY,
     chunkKey: `${chunkX},${chunkY}`,
     chunkX,
     chunkY,
@@ -91,3 +95,4 @@ function createTerrainDebrisResources(cellValue: number, yieldMultiplier: number
     Object.entries(baseResources).map(([resourceId, amount]) => [resourceId, Math.max(1, Math.round(amount * yieldMultiplier))])
   );
 }
+

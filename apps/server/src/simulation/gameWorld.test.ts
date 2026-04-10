@@ -196,6 +196,100 @@ describe("GameWorld", () => {
     expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[0]).toBe(0);
   });
 
+  it("keeps large structures and foundries visible when nearby in open space", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    const builder = Object.values(rootMap.structures)[0];
+    const foundry = Object.values(rootMap.foundries)[0];
+    if (!builder || !foundry) {
+      throw new Error("Expected builder and foundry.");
+    }
+
+    rootMap.chunks["0,0"].cells = Array(64).fill(0);
+    rootMap.chunks["1,0"].cells = Array(64).fill(0);
+    player.position = { x: builder.position.x - 24, y: builder.position.y };
+
+    let snapshot = world.getSnapshot("player-1");
+    expect(snapshot.structures.find((structure) => structure.id === builder.id)).toBeDefined();
+
+    player.position = { x: foundry.position.x - 24, y: foundry.position.y };
+    snapshot = world.getSnapshot("player-1");
+    expect(snapshot.foundries.find((entry) => entry.id === foundry.id)).toBeDefined();
+  });
+
+  it("hides enemies behind walls and prevents blocked enemies from chasing the player", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    const enemy = rootMap.enemies["enemy-root-1"];
+    if (!enemy) {
+      throw new Error("Expected root enemy.");
+    }
+
+    rootMap.chunks["0,0"].cells = Array(64).fill(0);
+    rootMap.chunks["1,0"].cells = Array(64).fill(0);
+    player.position = { x: 16, y: 16 };
+    enemy.position = { x: 80, y: 16 };
+    rootMap.chunks["0,0"].cells[1] = 1;
+
+    const snapshot = world.getSnapshot("player-1");
+    const chunk = snapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+    expect(snapshot.enemies).toHaveLength(0);
+    expect(chunk?.visibility[1]).toBe(2);
+    expect(chunk?.visibility[2]).toBe(0);
+
+    await world.tick();
+
+    expect(enemy.aiState).toBe("idle");
+    expect(enemy.velocity).toEqual({ x: 0, y: 0 });
+  });
+
+  it("keeps remembered terrain stable while hidden and restores it after reconnect", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    rootMap.chunks["0,0"].cells = Array(64).fill(0);
+    rootMap.chunks["1,0"].cells = Array(64).fill(0);
+    player.position = { x: 16, y: 16 };
+    rootMap.chunks["0,0"].cells[2] = 1;
+
+    let snapshot = world.getSnapshot("player-1");
+    let chunk = snapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+    expect(chunk?.cells[2]).toBe(1);
+    expect(chunk?.visibility[2]).toBe(2);
+
+    rootMap.chunks["0,0"].cells[1] = 1;
+    rootMap.chunks["0,0"].cells[2] = 0;
+
+    snapshot = world.getSnapshot("player-1");
+    chunk = snapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+    expect(chunk?.cells[1]).toBe(1);
+    expect(chunk?.visibility[1]).toBe(2);
+    expect(chunk?.cells[2]).toBe(1);
+    expect(chunk?.visibility[2]).toBe(1);
+
+    await world.disconnectPlayer("player-1");
+
+    const reloadedWorld = new GameWorld(world.persistence);
+    await reloadedWorld.initialize();
+    await reloadedWorld.connectPlayer("player-1");
+
+    const reloadedSnapshot = reloadedWorld.getSnapshot("player-1");
+    const reloadedChunk = reloadedSnapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+    expect(reloadedChunk?.cells[2]).toBe(1);
+    expect(reloadedChunk?.visibility[2]).toBe(1);
+  });
+
   it("queues throttled action feedback for locked routes and rejected module use", async () => {
     const world = new GameWorld();
     await world.initialize();
@@ -420,7 +514,14 @@ describe("GameWorld", () => {
     expect(Object.keys(rootMap.enemies).length).toBeGreaterThan(initialEnemyCount);
     expect(foundry.activeEnemyCount).toBeLessThanOrEqual(foundry.spawnCap);
 
-    const rotatedEnemy = world.getSnapshot("player-1").enemies[0];
+    const visibleEnemySource = Object.values(rootMap.enemies)[0];
+    if (!visibleEnemySource) {
+      throw new Error("Expected spawned enemy.");
+    }
+    rootMap.players["player-1"].position = { x: visibleEnemySource.position.x, y: visibleEnemySource.position.y - 32 };
+    await world.tick();
+
+    const rotatedEnemy = world.getSnapshot("player-1").enemies.find((enemy) => enemy.id === visibleEnemySource.id);
     expect(rotatedEnemy?.rotation).toBeTypeOf("number");
     expect(Math.abs(rotatedEnemy?.rotation ?? 0)).toBeGreaterThan(0.01);
 
@@ -460,3 +561,8 @@ describe("GameWorld", () => {
     expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
   });
 });
+
+
+
+
+

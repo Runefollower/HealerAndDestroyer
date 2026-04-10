@@ -32,12 +32,14 @@ import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
 import { damageTerrainAt } from "./terrain.js";
+import { buildPlayerVisibilityView, findNearestVisiblePlayer } from "./visibility.js";
 import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncPlayerSaveFromRuntime, syncRuntimeInventoryFromSave, syncRuntimeShipFromSave } from "./shipLifecycle.js";
 
 interface PlayerSessionState {
   playerId: ReturnType<typeof asPlayerId>;
   connectedAt: number;
   lastInputTick: number;
+  terrainMemoryByMap: PlayerSave["terrainMemoryByMap"];
 }
 
 const logger = createLogger("gameWorld");
@@ -85,6 +87,8 @@ export class GameWorld {
       await this.persistence.players.savePlayer(player);
     }
 
+    player.terrainMemoryByMap ??= {};
+
     const synced = syncCompletedShipBuilds(player, Date.now());
     player = synced.player;
     if (synced.changed) {
@@ -104,7 +108,8 @@ export class GameWorld {
     this.sessions.set(playerId, {
       playerId,
       connectedAt: Date.now(),
-      lastInputTick: 0
+      lastInputTick: 0,
+      terrainMemoryByMap: structuredClone(player.terrainMemoryByMap)
     });
 
     return player;
@@ -116,6 +121,7 @@ export class GameWorld {
     const map = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
     if (player && map) {
       const ship = map.players[playerId];
+      const session = this.sessions.get(playerId);
       const storedShip = player.shipStable[player.activeShipId];
       if (storedShip) {
         storedShip.modules = structuredClone(ship.modules);
@@ -128,6 +134,7 @@ export class GameWorld {
           mapId: ship.mapId,
           position: ship.position
         },
+        terrainMemoryByMap: structuredClone(session?.terrainMemoryByMap ?? player.terrainMemoryByMap ?? {}),
         updatedAt: Date.now()
       });
       delete map.players[playerId];
@@ -203,6 +210,12 @@ export class GameWorld {
     const playerId = asPlayerId(rawPlayerId);
     const map = this.getPlayerMap(playerId);
     const player = this.getPlayerShip(playerId);
+    const session = this.sessions.get(playerId);
+    if (!session) {
+      throw new Error(`Player ${playerId} is missing a session state.`);
+    }
+
+    const visibility = buildPlayerVisibilityView(map, player, session.terrainMemoryByMap);
     return createSnapshotMessage(
       this.tickCounter,
       playerId,
@@ -210,7 +223,16 @@ export class GameWorld {
       map,
       player,
       this.isBuilderSiteNearby(playerId),
-      isDeeperPathUnlocked(this.runtime.maps["map-root"])
+      isDeeperPathUnlocked(this.runtime.maps["map-root"]),
+      {
+        players: visibility.players,
+        enemies: visibility.enemies,
+        projectiles: visibility.projectiles,
+        structures: visibility.structures,
+        foundries: visibility.foundries,
+        drops: visibility.drops,
+        chunks: visibility.chunks
+      }
     );
   }
 
@@ -293,10 +315,10 @@ export class GameWorld {
 
   private tickEnemies(map: ActiveMapState, deltaSeconds: number): void {
     for (const enemy of Object.values(map.enemies)) {
-      const nearestPlayer = Object.values(map.players).sort(
-        (left, right) => distance(left.position, enemy.position) - distance(right.position, enemy.position)
-      )[0];
+      const nearestPlayer = findNearestVisiblePlayer(map, enemy);
       if (!nearestPlayer) {
+        enemy.aiState = "idle";
+        enemy.velocity = { x: 0, y: 0 };
         continue;
       }
 
@@ -612,6 +634,7 @@ export class GameWorld {
     }
 
     const synced = syncPlayerSaveFromRuntime(runtimePlayer, playerSave);
+    synced.terrainMemoryByMap = structuredClone(this.sessions.get(playerId)?.terrainMemoryByMap ?? synced.terrainMemoryByMap ?? {});
     logger.veryVerbose("Hydrated player save from runtime", {
       playerId,
       mapId: runtimePlayer.mapId,
@@ -792,3 +815,4 @@ export class GameWorld {
     }
   }
 }
+

@@ -79,16 +79,22 @@ The following major milestones are already implemented in the current prototype 
 - the client now shows a visible burst when terrain disappears so mining and weapon destruction both read clearly on screen
 - tests now cover projectile terrain impact, terrain destruction, debris spawning, and persistence after reload
 
+14. Visibility, line of sight, and terrain memory
+- per-player snapshots now filter terrain and entities through server-side line of sight
+- players retain remembered terrain per map, with out-of-sight terrain shown as greyed memory instead of updating live
+- enemy perception now reuses the same LOS helper so NPCs stop aggroing through cave walls
+- only terrain blocks first-pass visibility; large structures and foundries remain visible objects rather than acting as opaque occluders
+- tests now cover blocked LOS, remembered terrain persistence, reconnect behavior, and nearby structure visibility
+
 ## Summary
 
-The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, and a player-centered camera working well enough that the biggest missing pieces are visibility-driven world readability and broader combat/environment polish.
+The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, and first-pass visibility working well enough that the biggest remaining gaps are acceptance hardening, follow-up readability polish, and combat interactions that better exploit terrain and cover.
 
 The priority for the next phase is:
 
-1. visibility, line-of-sight, and player memory of explored terrain
-2. acceptance-test expansion around these spatial systems
-3. follow-up terrain and combat readability polish only if issues remain after visibility lands
-4. next-step combat interactions that build on the new terrain destruction rules
+1. persistence and acceptance hardening around visibility, reconnect, and broader spatial flows
+2. follow-up terrain and combat readability polish only where playtesting still shows issues
+3. next-step combat interactions that build on the new terrain destruction and line-of-sight rules
 
 ## Key Changes
 
@@ -174,6 +180,8 @@ Important implementation notes:
 
 ### 3. Visibility, line of sight, and terrain memory
 
+Status: first pass complete.
+
 - players should not see through solid terrain
 - each player should only have live vision within a local visual radius and unobstructed line of sight
 - players should retain a memory of terrain they have already seen
@@ -187,7 +195,15 @@ Important implementation notes:
 - if server-side terrain memory replication is too expensive for the first pass, a hybrid approach is acceptable:
   - server controls current visibility and entity disclosure
   - client stores remembered terrain based on previously visible chunk/tile data
-- choose a line-of-sight approach that fits the tile grid and current scope, such as ray sampling or flood-fill with occlusion
+- visibility should be computed in realtime from the observer's current tile rather than precomputed for every map location
+- use one shared server-side visibility service for both player disclosure and NPC perception, while allowing player and NPC rules to differ
+- first implementation target:
+  - tile-based line of sight using grid-aware ray checks over a bounded vision radius
+  - lightweight caching keyed by observer tile and map visibility revision, rather than a full precomputed lookup table
+  - player snapshots filtered on the server for currently visible entities and terrain
+  - player terrain memory stored per map as last-seen chunk cell state so out-of-sight terrain stays stable
+  - NPC perception reuses the same LOS helper but can apply its own radius and future cone or alert rules
+- choose a line-of-sight approach that fits the tile grid and current scope, starting with bounded ray sampling and leaving shadowcasting as an optimization path if needed
 - the HUD/minimap should eventually reflect explored-vs-currently-visible state, but the main world view is the first target
 
 ### 4. Persistence and acceptance hardening for spatial systems
@@ -234,3 +250,4 @@ Optional terrain-art follow-up checks, only if later phases reveal a need:
 - terrain art starts with the current rock terrain before expanding to multiple biomes
 - collision is implemented as gameplay-first deterministic constraints, not full rigid-body physics
 - fog-of-war style memory can begin with the main playfield before any dedicated minimap/exploration UI is expanded
+

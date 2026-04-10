@@ -199,6 +199,7 @@ export function createDefaultPlayerSave(worldId: string, playerId: string): Play
     },
     teamId: null,
     discoveredMapIds: [mapId],
+    terrainMemoryByMap: {},
     updatedAt: Date.now()
   };
 }
@@ -210,3 +211,5 @@ export function createRuntimeState(): WorldRuntimeState {
     maps: createActiveMaps()
   };
 }
+
+

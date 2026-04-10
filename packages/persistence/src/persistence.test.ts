@@ -33,6 +33,7 @@ describe("in-memory persistence", () => {
       },
       teamId: null,
       discoveredMapIds: [asMapId("map-root")],
+      terrainMemoryByMap: {},
       updatedAt: Date.now()
     });
 
@@ -81,3 +82,5 @@ describe("in-memory persistence", () => {
     expect(restoredMap?.foundries[0]?.structureTypeId).toBe("enemy-foundry");
   });
 });
+
+

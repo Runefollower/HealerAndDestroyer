@@ -127,11 +127,14 @@ export interface DropSnapshot {
   resources: ResourceMap;
 }
 
+export type TerrainVisibilityState = 0 | 1 | 2;
+
 export interface ChunkSnapshot {
   chunkKey: string;
   chunkX: number;
   chunkY: number;
   cells: number[];
+  visibility: TerrainVisibilityState[];
 }
 
 export interface SnapshotMessage {
@@ -195,6 +198,16 @@ export type ServerMessage =
   | ShipBuildCompletedMessage
   | ActionFeedbackMessage;
 
+export interface SnapshotMessageOverrides {
+  players?: PlayerSnapshot[];
+  enemies?: EnemySnapshot[];
+  projectiles?: ProjectileSnapshot[];
+  structures?: StructureSnapshot[];
+  foundries?: FoundrySnapshot[];
+  drops?: DropSnapshot[];
+  chunks?: ChunkSnapshot[];
+}
+
 export function createSnapshotMessage(
   tick: number,
   selfPlayerId: PlayerId,
@@ -202,66 +215,83 @@ export function createSnapshotMessage(
   map: ActiveMapState,
   self: PlayerShipState,
   builderSiteNearby: boolean,
-  deeperPathUnlocked: boolean
+  deeperPathUnlocked: boolean,
+  overrides: SnapshotMessageOverrides = {}
 ): SnapshotMessage {
   return {
     type: "snapshot",
     tick,
     selfPlayerId,
     mapId,
-    players: Object.values(map.players).map((player) => ({
-      id: player.id,
-      playerId: player.playerId,
-      shipId: player.shipId,
-      hullId: player.hullId,
-      position: player.position,
-      velocity: player.velocity,
-      rotation: player.rotation,
-      hull: player.hull,
-      maxHull: player.maxHull,
-      modules: structuredClone(player.modules)
-    })),
-    enemies: Object.values(map.enemies).map((enemy) => ({
-      id: enemy.id,
-      enemyTypeId: enemy.enemyTypeId,
-      position: enemy.position,
-      rotation: enemy.rotation,
-      health: enemy.health
-    })),
-    projectiles: Object.values(map.projectiles).map((projectile) => ({
-      id: projectile.id,
-      position: projectile.position
-    })),
-    structures: Object.values(map.structures).map((structure) => ({
-      id: structure.id,
-      structureTypeId: structure.structureTypeId,
-      position: structure.position,
-      health: structure.health,
-      buildState: structure.buildState
-    })),
-    foundries: Object.values(map.foundries).map((foundry) => ({
-      id: foundry.id,
-      position: foundry.position,
-      health: foundry.health,
-      active: foundry.active,
-      spawnCooldownMs: foundry.spawnCooldownMs,
-      spawnCap: foundry.spawnCap,
-      activeEnemyCount: foundry.activeEnemyCount
-    })),
-    drops: Object.values(map.drops).map((drop) => ({
-      id: drop.id,
-      position: drop.position,
-      resources: drop.resources
-    })),
-    chunks: Object.entries(map.chunks).map(([chunkKey, chunk]) => ({
-      chunkKey,
-      chunkX: chunk.chunkX,
-      chunkY: chunk.chunkY,
-      cells: [...chunk.cells]
-    })),
+    players:
+      overrides.players ??
+      Object.values(map.players).map((player) => ({
+        id: player.id,
+        playerId: player.playerId,
+        shipId: player.shipId,
+        hullId: player.hullId,
+        position: player.position,
+        velocity: player.velocity,
+        rotation: player.rotation,
+        hull: player.hull,
+        maxHull: player.maxHull,
+        modules: structuredClone(player.modules)
+      })),
+    enemies:
+      overrides.enemies ??
+      Object.values(map.enemies).map((enemy) => ({
+        id: enemy.id,
+        enemyTypeId: enemy.enemyTypeId,
+        position: enemy.position,
+        rotation: enemy.rotation,
+        health: enemy.health
+      })),
+    projectiles:
+      overrides.projectiles ??
+      Object.values(map.projectiles).map((projectile) => ({
+        id: projectile.id,
+        position: projectile.position
+      })),
+    structures:
+      overrides.structures ??
+      Object.values(map.structures).map((structure) => ({
+        id: structure.id,
+        structureTypeId: structure.structureTypeId,
+        position: structure.position,
+        health: structure.health,
+        buildState: structure.buildState
+      })),
+    foundries:
+      overrides.foundries ??
+      Object.values(map.foundries).map((foundry) => ({
+        id: foundry.id,
+        position: foundry.position,
+        health: foundry.health,
+        active: foundry.active,
+        spawnCooldownMs: foundry.spawnCooldownMs,
+        spawnCap: foundry.spawnCap,
+        activeEnemyCount: foundry.activeEnemyCount
+      })),
+    drops:
+      overrides.drops ??
+      Object.values(map.drops).map((drop) => ({
+        id: drop.id,
+        position: drop.position,
+        resources: drop.resources
+      })),
+    chunks:
+      overrides.chunks ??
+      Object.entries(map.chunks).map(([chunkKey, chunk]) => ({
+        chunkKey,
+        chunkX: chunk.chunkX,
+        chunkY: chunk.chunkY,
+        cells: [...chunk.cells],
+        visibility: chunk.cells.map(() => 2 as TerrainVisibilityState)
+      })),
     inventory: self.inventory,
     selfModules: structuredClone(self.modules),
     builderSiteNearby,
     deeperPathUnlocked
   };
 }
+

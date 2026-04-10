@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { clientMessageSchema, createSnapshotMessage } from "./network.js";
 import { asEntityId, asMapId, asPlayerId, asShipId } from "./ids.js";
 
@@ -82,6 +82,9 @@ describe("network schemas", () => {
     expect(snapshot.players[0]?.hullId).toBe("sparrow-scout");
     expect(snapshot.builderSiteNearby).toBe(true);
     expect(snapshot.chunks).toHaveLength(1);
+    expect(snapshot.chunks[0]?.visibility).toEqual([2, 2, 2, 2]);
     expect(snapshot.selfModules).toHaveLength(0);
   });
 });
+
+

@@ -24,6 +24,15 @@ export interface StoredShip {
   buildCompleteAt?: number | null;
 }
 
+export interface TerrainMemoryChunkState {
+  cells: number[];
+  explored: boolean[];
+}
+
+export interface TerrainMemoryMapState {
+  chunks: Record<string, TerrainMemoryChunkState>;
+}
+
 export interface PlayerSave {
   playerId: PlayerId;
   worldId: WorldId;
@@ -34,6 +43,7 @@ export interface PlayerSave {
   spawnPoint: SpawnPoint;
   teamId: string | null;
   discoveredMapIds: MapId[];
+  terrainMemoryByMap: Record<string, TerrainMemoryMapState>;
   updatedAt: number;
 }
 
@@ -105,3 +115,5 @@ export interface PersistedMapState {
   structures: PersistedStructureState[];
   foundries: PersistedFoundryState[];
 }
+
+
