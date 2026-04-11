@@ -22,12 +22,14 @@ export async function bootstrapClient(): Promise<void> {
   const hud = document.getElementById("hud")!;
   const builder = document.getElementById("builder")!;
   const notifications = document.getElementById("notifications")!;
+  const framerate = document.getElementById("framerate")!;
   const input = createInputState();
   const network = new NetworkClient();
   const store = createClientStore();
   let tick = 0;
   let mouseScreen = { x: app.screen.width / 2, y: app.screen.height / 2 };
   let clockOffsetMs = 0;
+  const frameTimes: number[] = [];
 
   attachInputListeners(input);
   window.addEventListener("mousemove", (event) => {
@@ -49,6 +51,10 @@ export async function bootstrapClient(): Promise<void> {
     if (event.key === "3") {
       cycleSelectedModule(store, "support");
       renderHudForStore(hud, store);
+    }
+    if (event.key === "0") {
+      store.fpsVisible = !store.fpsVisible;
+      renderFrameRate(framerate, store.fpsVisible, frameTimes);
     }
   });
   hud.addEventListener("pointerdown", (event) => {
@@ -140,6 +146,13 @@ export async function bootstrapClient(): Promise<void> {
 
   app.ticker.add(() => {
     tick += 1;
+    const frameTime = performance.now();
+    frameTimes.push(frameTime);
+    while (frameTimes.length && frameTimes[0] < frameTime - 2000) {
+      frameTimes.shift();
+    }
+    renderFrameRate(framerate, store.fpsVisible, frameTimes);
+
     network.send({
       type: "moveInput",
       thrustForward: input.thrustForward,
@@ -301,6 +314,22 @@ function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
       `
     )
     .join("");
+}
+
+function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: number[]): void {
+  container.classList.toggle("visible", visible);
+  if (!visible) {
+    return;
+  }
+
+  const firstFrameTime = frameTimes[0];
+  const lastFrameTime = frameTimes[frameTimes.length - 1];
+  const elapsedSeconds =
+    firstFrameTime === undefined || lastFrameTime === undefined
+      ? 0
+      : Math.min(2, Math.max((lastFrameTime - firstFrameTime) / 1000, 0));
+  const framesPerSecond = elapsedSeconds > 0 ? Math.max(frameTimes.length - 1, 0) / elapsedSeconds : 0;
+  container.textContent = `${Math.round(framesPerSecond)} FPS`;
 }
 
 function renderHudForStore(hud: HTMLElement, store: ClientStore): void {

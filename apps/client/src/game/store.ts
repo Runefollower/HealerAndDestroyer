@@ -16,6 +16,7 @@ export interface ClientStore {
   builderState: Extract<ServerMessage, { type: "builderState" }> | null;
   builderOpen: boolean;
   hudMinimized: boolean;
+  fpsVisible: boolean;
   toasts: UiToast[];
   selectedModuleHardpoints: Record<ModuleSelectionCapability, string | null>;
 }
@@ -26,6 +27,7 @@ export function createClientStore(): ClientStore {
     builderState: null,
     builderOpen: false,
     hudMinimized: false,
+    fpsVisible: false,
     toasts: [],
     selectedModuleHardpoints: {
       weapon: null,
