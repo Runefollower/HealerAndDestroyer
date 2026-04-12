@@ -1,23 +1,31 @@
 import { asEntityId, type ActiveMapState, type ResourceMap } from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
 
+// TILE_SIZE converts between pixel/world coordinates and persisted terrain cells.
 export const TILE_SIZE = 32;
 
 export interface TileAddress {
+  // Absolute tile coordinates in the active map.
   tileX: number;
   tileY: number;
+  // Chunk lookup key and chunk coordinates for map.chunks.
   chunkKey: string;
   chunkX: number;
   chunkY: number;
+  // Linear cell index inside the chunk's CHUNK_SIZE by CHUNK_SIZE cell array.
   cellIndex: number;
 }
 
 export interface TerrainDamageResult {
+  // hit means a solid terrain cell was targeted, even if damage was too low to break it.
   hit: boolean;
+  // destroyed means the cell was cleared and resources were produced.
   destroyed: boolean;
+  // resources carries the debris payout when terrain is destroyed.
   resources?: ResourceMap;
 }
 
+// Converts a world-space position into the chunk/cell address used by terrain storage.
 export function worldToTile(position: { x: number; y: number }): TileAddress | null {
   const tileX = Math.floor(position.x / TILE_SIZE);
   const tileY = Math.floor(position.y / TILE_SIZE);
@@ -39,10 +47,12 @@ export function worldToTile(position: { x: number; y: number }): TileAddress | n
   };
 }
 
+// Applies unlimited mining damage and returns whether the terrain cell was actually cleared.
 export function mineTerrainAt(map: ActiveMapState, position: { x: number; y: number }, tickCounter: number, yieldMultiplier = 1): boolean {
   return damageTerrainAt(map, position, Number.POSITIVE_INFINITY, tickCounter, yieldMultiplier).destroyed;
 }
 
+// Applies weapon/mining damage to one terrain cell and creates a resource drop on destruction.
 export function damageTerrainAt(
   map: ActiveMapState,
   position: { x: number; y: number },
@@ -50,6 +60,7 @@ export function damageTerrainAt(
   tickCounter: number,
   yieldMultiplier = 1
 ): TerrainDamageResult {
+  // Resolve the target tile and reject positions outside known terrain.
   const tile = worldToTile(position);
   if (!tile) {
     return { hit: false, destroyed: false };
@@ -67,6 +78,7 @@ export function damageTerrainAt(
     return { hit: true, destroyed: false };
   }
 
+  // Clear the terrain cell, mark the chunk for persistence, and spawn deterministic-ish debris id data.
   chunk.cells[tile.cellIndex] = 0;
   chunk.dirty = true;
   const resources = createTerrainDebrisResources(currentValue, yieldMultiplier);
@@ -79,6 +91,7 @@ export function damageTerrainAt(
   return { hit: true, destroyed: true, resources };
 }
 
+// Maps prototype terrain material values to the damage required to break them.
 function getTerrainCriticalDamage(cellValue: number): number {
   if (cellValue === 1) {
     return 20;
@@ -89,10 +102,10 @@ function getTerrainCriticalDamage(cellValue: number): number {
   return 36;
 }
 
+// Converts a terrain material value into the resources dropped after destruction.
 function createTerrainDebrisResources(cellValue: number, yieldMultiplier: number): ResourceMap {
   const baseResources = cellValue === 1 ? { ferrite: 2 } : { ferrite: 1, "plasma-crystal": 1 };
   return Object.fromEntries(
     Object.entries(baseResources).map(([resourceId, amount]) => [resourceId, Math.max(1, Math.round(amount * yieldMultiplier))])
   );
 }
-

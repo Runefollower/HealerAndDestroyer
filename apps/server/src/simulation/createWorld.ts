@@ -16,10 +16,12 @@ import {
 
 export const CHUNK_SIZE = 8;
 
+// Creates one prototype terrain chunk with sparse filled cells for early mining tests.
 function createChunk(fill: number): number[] {
   return Array.from({ length: CHUNK_SIZE * CHUNK_SIZE }, (_, index) => (index % 7 === 0 ? fill : 0));
 }
 
+// Builds a rectangular chunk map keyed by "chunkX,chunkY" for runtime lookup.
 function createChunkGrid(widthInChunks: number, heightInChunks: number, fill: number): ActiveMapState["chunks"] {
   return Object.fromEntries(
     Array.from({ length: widthInChunks * heightInChunks }, (_, index) => {
@@ -30,6 +32,7 @@ function createChunkGrid(widthInChunks: number, heightInChunks: number, fill: nu
   );
 }
 
+// Defines the starter tunnel from the root map into the deeper prototype map.
 function createRootConnection(): MapConnection {
   return {
     id: asConnectionId("conn-root-depth-1"),
@@ -42,7 +45,9 @@ function createRootConnection(): MapConnection {
   };
 }
 
+// Creates the starter foundry that acts as the root-map objective gate.
 function createFoundryState(): FoundryState {
+  // Content definitions provide health tuning while this file owns prototype placement/spawn state.
   const foundry = structureDefinitions.find((entry) => entry.id === "enemy-foundry");
   return {
     id: asEntityId("foundry-root-1"),
@@ -62,7 +67,9 @@ function createFoundryState(): FoundryState {
   };
 }
 
+// Creates the persistent world graph metadata used to bootstrap or seed storage.
 export function createWorldGraph(worldId = asWorldId("world-alpha")): PersistentWorld {
+  // Stable ids keep tests, snapshots, and persisted records deterministic across process restarts.
   const rootMapId = asMapId("map-root");
   const deeperMapId = asMapId("map-depth-1");
   const connection = createRootConnection();
@@ -103,7 +110,9 @@ export function createWorldGraph(worldId = asWorldId("world-alpha")): Persistent
   };
 }
 
+// Creates in-memory active map state from prototype templates and content definitions.
 export function createActiveMaps(): Record<string, ActiveMapState> {
+  // These ids and content references define the playable vertical-slice layout.
   const rootMapId = asMapId("map-root");
   const deeperMapId = asMapId("map-depth-1");
   const connection = createRootConnection();
@@ -111,6 +120,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
   const scoutEnemy = enemyDefinitions[0];
   const rootFoundry = createFoundryState();
 
+  // Root map contains the player start area, builder site, first enemy, and objective foundry.
   return {
     [rootMapId]: {
       id: rootMapId,
@@ -151,6 +161,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       drops: {},
       connections: [connection]
     },
+    // Deeper map starts discovered but locked behind root foundry progression.
     [deeperMapId]: {
       id: deeperMapId,
       seed: "depth-seed",
@@ -168,7 +179,9 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
   };
 }
 
+// Creates the first-time player save with starter resources, ship, modules, and spawn point.
 export function createDefaultPlayerSave(worldId: string, playerId: string): PlayerSave {
+  // The ship id is derived from player id so repeated save creation stays predictable.
   const mapId = asMapId("map-root");
   const shipId = asShipId(`ship-${playerId}`);
   return {
@@ -204,6 +217,7 @@ export function createDefaultPlayerSave(worldId: string, playerId: string): Play
   };
 }
 
+// Creates a fresh runtime state graph for the authoritative simulation.
 export function createRuntimeState(): WorldRuntimeState {
   return {
     worldId: "world-alpha",
@@ -211,5 +225,4 @@ export function createRuntimeState(): WorldRuntimeState {
     maps: createActiveMaps()
   };
 }
-
 

@@ -327,3 +327,13 @@ Open:
 - if changing terrain/chunk formats, update both persistence restoration and snapshot rendering paths
 - if changing tool behavior, update module capability definitions in content at the same time as server action handling
 - if changing foundry/objective behavior, update persistence serialization and client HUD/objective presentation together
+
+## Code Documentation Expectations
+
+When adding or changing code, include clear documentation that makes the file easier for future contributors to read:
+
+- add a short comment at the beginning of each function explaining what the function does and why it exists
+- document the purpose of important variables, especially values that carry gameplay meaning, cross-system state, timing data, IDs, coordinates, or persistence/network payloads
+- add brief comments before major sections of logic to describe the step being performed, such as input handling, validation, state mutation, persistence writes, snapshot creation, or rendering
+- keep comments accurate and useful; update nearby documentation whenever behavior changes
+- avoid noisy comments that simply repeat the code, but prefer explicit explanations when intent, units, coordinate spaces, timing windows, or ownership boundaries are not obvious

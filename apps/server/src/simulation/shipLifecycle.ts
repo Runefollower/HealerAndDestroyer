@@ -1,7 +1,9 @@
 import { getHullDefinition } from "@healer/content";
 import { asEntityId, type BuilderStateMessage, type PlayerSave, type PlayerShipState, type StoredShip } from "@healer/shared";
 
+// Builds the live simulation ship from the player's saved active ship and spawn point.
 export function createRuntimeShip(playerId: PlayerShipState["playerId"], ship: StoredShip, player: PlayerSave): PlayerShipState {
+  // Hull definitions supply current capacity limits while the save supplies player-owned state.
   const hull = getHullDefinition(ship.hullId);
   return {
     id: asEntityId(`entity-${ship.id}`),
@@ -23,6 +25,7 @@ export function createRuntimeShip(playerId: PlayerShipState["playerId"], ship: S
   };
 }
 
+// Returns the active saved ship or fails loudly if persistence has become internally inconsistent.
 export function resolveActiveShip(player: PlayerSave): StoredShip {
   const activeShip = player.shipStable[player.activeShipId];
   if (!activeShip) {
@@ -31,7 +34,9 @@ export function resolveActiveShip(player: PlayerSave): StoredShip {
   return activeShip;
 }
 
+// Promotes any completed ship builds from building to ready based on the current server time.
 export function syncCompletedShipBuilds(player: PlayerSave, now: number): { changed: boolean; completedShips: StoredShip[]; player: PlayerSave } {
+  // completedShips is returned so callers can emit player-facing completion messages.
   const completedShips: StoredShip[] = [];
   for (const ship of Object.values(player.shipStable)) {
     if (ship.status === "building" && ship.buildCompleteAt && ship.buildCompleteAt <= now) {
@@ -42,6 +47,7 @@ export function syncCompletedShipBuilds(player: PlayerSave, now: number): { chan
   return { changed: completedShips.length > 0, completedShips, player };
 }
 
+// Copies active ship save data back onto the live ship when modules, hull, or active ship changes.
 export function syncRuntimeShipFromSave(runtimePlayer: PlayerShipState, playerSave: PlayerSave): void {
   const activeShip = resolveActiveShip(playerSave);
   const hull = getHullDefinition(activeShip.hullId);
@@ -55,10 +61,12 @@ export function syncRuntimeShipFromSave(runtimePlayer: PlayerShipState, playerSa
   runtimePlayer.inventory = { ...playerSave.resourceCounts };
 }
 
+// Copies saved resources into the live ship inventory after builder crafting/spending changes.
 export function syncRuntimeInventoryFromSave(runtimePlayer: PlayerShipState, playerSave: PlayerSave): void {
   runtimePlayer.inventory = { ...playerSave.resourceCounts };
 }
 
+// Copies live runtime state into the persisted save before storage writes or builder reads.
 export function syncPlayerSaveFromRuntime(runtimePlayer: PlayerShipState, playerSave: PlayerSave): PlayerSave {
   playerSave.resourceCounts = { ...runtimePlayer.inventory };
 
@@ -76,6 +84,7 @@ export function syncPlayerSaveFromRuntime(runtimePlayer: PlayerShipState, player
   return playerSave;
 }
 
+// Shapes the current stable, active ship, crafted modules, and build timers for the builder UI.
 export function createBuilderState(player: PlayerSave, now: number): BuilderStateMessage {
   return {
     type: "builderState",

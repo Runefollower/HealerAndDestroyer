@@ -10,12 +10,16 @@ import { preloadPlayerShipTextures } from "./playerShipAssets.js";
 import { preloadTerrainTextures } from "./terrainAssets.js";
 import { preloadWorldEntityTextures } from "./worldEntityAssets.js";
 
+// Boots the Pixi client, wires DOM UI, connects to the server, and starts the frame loop.
 export async function bootstrapClient(): Promise<void> {
+  // Pixi owns the game canvas while HTML elements own HUD, builder, notifications, and FPS display.
   const app = new Application();
   await app.init({ resizeTo: window, backgroundAlpha: 0 });
+  // Preload visual assets before the first snapshot so world rendering does not flash missing textures.
   await Promise.all([preloadTerrainTextures(), preloadPlayerShipTextures(), preloadWorldEntityTextures()]);
   document.getElementById("app")!.appendChild(app.canvas);
 
+  // worldLayer is moved by the camera while the stage remains pinned to the screen.
   const worldLayer = new Container();
   app.stage.addChild(worldLayer);
 
@@ -26,12 +30,17 @@ export async function bootstrapClient(): Promise<void> {
   const input = createInputState();
   const network = new NetworkClient();
   const store = createClientStore();
+  // tick is the local frame/input counter sent to the authoritative server with client actions.
   let tick = 0;
+  // mouseScreen tracks the latest browser-space pointer position for world-targeted mining.
   let mouseScreen = { x: app.screen.width / 2, y: app.screen.height / 2 };
+  // clockOffsetMs estimates server time minus local time for builder countdown display.
   let clockOffsetMs = 0;
+  // frameTimes stores recent performance timestamps for the toggleable FPS overlay.
   const frameTimes: number[] = [];
 
   attachInputListeners(input);
+  // Pointer position is converted to world space each frame after camera movement.
   window.addEventListener("mousemove", (event) => {
     mouseScreen = { x: event.clientX, y: event.clientY };
   });
@@ -40,6 +49,7 @@ export async function bootstrapClient(): Promise<void> {
       return;
     }
 
+    // Number keys cycle selected module hardpoints by gameplay capability.
     if (event.key === "1") {
       cycleSelectedModule(store, "weapon");
       renderHudForStore(hud, store);
@@ -53,6 +63,7 @@ export async function bootstrapClient(): Promise<void> {
       renderHudForStore(hud, store);
     }
     if (event.key === "0") {
+      // 0 toggles the local frame-rate overlay without involving the server.
       store.fpsVisible = !store.fpsVisible;
       renderFrameRate(framerate, store.fpsVisible, frameTimes);
     }
@@ -63,6 +74,7 @@ export async function bootstrapClient(): Promise<void> {
       return;
     }
 
+    // HUD minimize/expand is a local UI preference.
     const toggleButton = target.closest<HTMLElement>("[data-action='toggle-hud']");
     if (!toggleButton) {
       return;
@@ -73,6 +85,7 @@ export async function bootstrapClient(): Promise<void> {
     store.hudMinimized = !store.hudMinimized;
     renderHudForStore(hud, store);
   });
+  // Builder pointer events should not fall through into world click actions.
   builder.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
   });
@@ -85,6 +98,7 @@ export async function bootstrapClient(): Promise<void> {
       return;
     }
 
+    // Builder buttons encode their server action payload in data attributes.
     const button = target.closest<HTMLButtonElement>("button[data-action]");
     if (!button || button.disabled) {
       return;
@@ -101,6 +115,7 @@ export async function bootstrapClient(): Promise<void> {
       return;
     }
 
+    // Map button action names from UI copy to shared builder action message variants.
     if (action === "craft") {
       network.sendBuilderAction({ type: "builderAction", action: "craftModule", targetId });
     } else if (action === "build") {
@@ -115,6 +130,7 @@ export async function bootstrapClient(): Promise<void> {
   });
 
   network.onServerMessage((message) => {
+    // Some server messages refine the local server-time offset used by builder timers.
     const nextOffset = handleServerMessage(network, builder, hud, notifications, worldLayer, store, message, clockOffsetMs);
     if (typeof nextOffset === "number") {
       clockOffsetMs = nextOffset;
@@ -122,6 +138,7 @@ export async function bootstrapClient(): Promise<void> {
   });
 
   window.addEventListener("builder-interact", () => {
+    // E toggles the builder only when the latest snapshot says the player is close enough.
     const nearby = !!store.latestSnapshot?.builderSiteNearby;
     if (!nearby) {
       return;
@@ -129,11 +146,13 @@ export async function bootstrapClient(): Promise<void> {
 
     store.builderOpen = !store.builderOpen;
     if (!store.builderOpen) {
+      // Closing the builder drops stale state so the next open re-syncs with the server.
       store.builderState = null;
       syncBuilderVisibility(builder, store);
       return;
     }
 
+    // Show immediate loading copy while waiting for the authoritative builderState response.
     builder.innerHTML = `
       <p class="panel-title">Builder Site</p>
       <div class="muted-copy">Syncing builder state...</div>
@@ -142,10 +161,13 @@ export async function bootstrapClient(): Promise<void> {
     network.send({ type: "interact" });
   });
 
+  // Use a temporary prototype pilot id until authentication/account selection exists.
   await network.connect(`pilot-${Math.floor(Math.random() * 10000)}`);
 
   app.ticker.add(() => {
+    // Local ticker drives input submission, client-only UI timers, and opportunistic actions.
     tick += 1;
+    // Keep only the last two seconds of frame timestamps for a stable rolling FPS display.
     const frameTime = performance.now();
     frameTimes.push(frameTime);
     while (frameTimes.length && frameTimes[0] < frameTime - 2000) {
@@ -153,6 +175,7 @@ export async function bootstrapClient(): Promise<void> {
     }
     renderFrameRate(framerate, store.fpsVisible, frameTimes);
 
+    // Movement input is sent every frame so the server remains authoritative about motion.
     network.send({
       type: "moveInput",
       thrustForward: input.thrustForward,
@@ -164,9 +187,11 @@ export async function bootstrapClient(): Promise<void> {
 
     const snapshot = store.latestSnapshot;
     if (snapshot) {
+      // Camera update must happen before screen-to-world targeting.
       updateCamera(worldLayer, snapshot, app.screen.width, app.screen.height);
       const mouseWorld = screenToWorld(worldLayer, mouseScreen);
 
+      // Actions are throttled client-side to reduce duplicate messages while controls are held.
       const weaponModule = getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon);
       if (input.firePrimary && weaponModule && tick % 8 === 0) {
         network.send({
@@ -199,9 +224,11 @@ export async function bootstrapClient(): Promise<void> {
     }
 
     if (store.builderOpen && store.builderState && builder.classList.contains("visible")) {
+      // Builder countdowns are refreshed locally between server builderState messages.
       refreshBuilderTimers(builder, store.builderState, clockOffsetMs);
     }
 
+    // Toasts expire on the client without requiring server cleanup messages.
     const now = Date.now();
     const nextToasts = store.toasts.filter((toast) => toast.expiresAt > now);
     if (nextToasts.length !== store.toasts.length) {
@@ -211,6 +238,7 @@ export async function bootstrapClient(): Promise<void> {
   });
 }
 
+// Applies one incoming server message to client store, UI, and world rendering.
 function handleServerMessage(
   network: NetworkClient,
   builder: HTMLElement,
@@ -222,6 +250,7 @@ function handleServerMessage(
   clockOffsetMs: number
 ): number | undefined {
   if (message.type === "builderState") {
+    // builderState is authoritative and also provides a server timestamp for countdown correction.
     store.builderState = message;
     const nextOffset = message.serverTime - Date.now();
     if (store.builderOpen) {
@@ -232,6 +261,7 @@ function handleServerMessage(
   }
 
   if (message.type === "shipBuildCompleted") {
+    // Ship build completion is a one-off toast and may trigger a builder refresh if the panel is open.
     store.toasts = [
       {
         id: `${message.shipId}-${message.serverTime}`,
@@ -251,6 +281,7 @@ function handleServerMessage(
   }
 
   if (message.type === "actionFeedback") {
+    // Server action feedback becomes a transient toast with level-based duration/styling.
     store.toasts = [
       {
         id: `${message.code}-${message.serverTime}`,
@@ -266,11 +297,13 @@ function handleServerMessage(
   }
 
   if (message.type === "snapshot") {
+    // Snapshot is the main world/HUD update path and refreshes module selection validity.
     store.latestSnapshot = message;
     reconcileSelectedModules(store, message.selfModules);
     renderHudForStore(hud, store);
     renderWorld(worldLayer, message);
     if (!message.builderSiteNearby) {
+      // Moving away from the builder closes the local panel and clears its stale state.
       store.builderOpen = false;
       store.builderState = null;
     }
@@ -280,6 +313,7 @@ function handleServerMessage(
   return clockOffsetMs;
 }
 
+// Centers the world layer on the local player's latest snapshot position.
 function updateCamera(worldLayer: Container, snapshot: SnapshotMessage, screenWidth: number, screenHeight: number): void {
   const selfPlayer = snapshot.players.find((player) => player.playerId === snapshot.selfPlayerId);
   if (!selfPlayer) {
@@ -289,11 +323,13 @@ function updateCamera(worldLayer: Container, snapshot: SnapshotMessage, screenWi
   worldLayer.position.set(screenWidth / 2 - selfPlayer.position.x, screenHeight / 2 - selfPlayer.position.y);
 }
 
+// Converts a browser screen coordinate into world coordinates using the current camera transform.
 function screenToWorld(worldLayer: Container, screen: { x: number; y: number }): { x: number; y: number } {
   const local = worldLayer.toLocal(screen);
   return { x: local.x, y: local.y };
 }
 
+// Applies builder visibility rules and clears hidden content to avoid stale interactive controls.
 function syncBuilderVisibility(builder: HTMLElement, store: ClientStore): void {
   const nearby = !!store.latestSnapshot?.builderSiteNearby;
   const visible = nearby && store.builderOpen;
@@ -303,6 +339,7 @@ function syncBuilderVisibility(builder: HTMLElement, store: ClientStore): void {
   }
 }
 
+// Renders the current toast stack into the notifications container.
 function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
   container.innerHTML = toasts
     .map(
@@ -316,12 +353,14 @@ function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
     .join("");
 }
 
+// Renders the rolling FPS overlay when the local toggle is enabled.
 function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: number[]): void {
   container.classList.toggle("visible", visible);
   if (!visible) {
     return;
   }
 
+  // FPS uses frame count over elapsed time in the rolling two-second window.
   const firstFrameTime = frameTimes[0];
   const lastFrameTime = frameTimes[frameTimes.length - 1];
   const elapsedSeconds =
@@ -332,6 +371,7 @@ function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: n
   container.textContent = `${Math.round(framesPerSecond)} FPS`;
 }
 
+// Renders the HUD only when a snapshot is available.
 function renderHudForStore(hud: HTMLElement, store: ClientStore): void {
   if (!store.latestSnapshot) {
     return;
@@ -340,6 +380,7 @@ function renderHudForStore(hud: HTMLElement, store: ClientStore): void {
   renderHud(hud, store.latestSnapshot, store.hudMinimized, describeSelectedModules(store.latestSnapshot, store));
 }
 
+// Builds user-facing labels for the selected module in each capability group.
 function describeSelectedModules(snapshot: SnapshotMessage, store: ClientStore): HudSelections {
   return {
     weapon: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon)),
@@ -348,6 +389,7 @@ function describeSelectedModules(snapshot: SnapshotMessage, store: ClientStore):
   };
 }
 
+// Formats one installed module label for HUD display.
 function formatSelectedModule(module: InstalledModule | undefined): string {
   if (!module) {
     return "offline";
@@ -357,11 +399,13 @@ function formatSelectedModule(module: InstalledModule | undefined): string {
   return `${definition.name} (${module.hardpointId})`;
 }
 
+// Resolves the selected installed module for a capability, falling back to the first matching module.
 function getSelectedModuleByCapability(
   modules: InstalledModule[],
   capability: ModuleSelectionCapability,
   selectedHardpointId: string | null
 ): InstalledModule | undefined {
+  // Module definitions are the source of truth for capability membership.
   const matchingModules = modules.filter((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes(capability));
   if (!matchingModules.length) {
     return undefined;
@@ -370,6 +414,7 @@ function getSelectedModuleByCapability(
   return matchingModules.find((installedModule) => installedModule.hardpointId === selectedHardpointId) ?? matchingModules[0];
 }
 
+// Keeps selected hardpoints valid after snapshots change installed module state.
 function reconcileSelectedModules(store: ClientStore, modules: InstalledModule[]): void {
   for (const capability of ["weapon", "mining", "support"] as const) {
     const matchingModules = modules.filter((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes(capability));
@@ -384,6 +429,7 @@ function reconcileSelectedModules(store: ClientStore, modules: InstalledModule[]
   }
 }
 
+// Advances the selected hardpoint for a capability when the player presses 1/2/3.
 function cycleSelectedModule(store: ClientStore, capability: ModuleSelectionCapability): void {
   const snapshot = store.latestSnapshot;
   if (!snapshot) {

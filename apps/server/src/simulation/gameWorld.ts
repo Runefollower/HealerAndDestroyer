@@ -36,39 +36,56 @@ import { buildPlayerVisibilityView, findNearestVisiblePlayer } from "./visibilit
 import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncPlayerSaveFromRuntime, syncRuntimeInventoryFromSave, syncRuntimeShipFromSave } from "./shipLifecycle.js";
 
 interface PlayerSessionState {
+  // Branded player id used for runtime maps and persistence lookups.
   playerId: ReturnType<typeof asPlayerId>;
+  // Connection timestamp used for diagnostics and future session aging.
   connectedAt: number;
+  // Last client input tick processed for this session.
   lastInputTick: number;
+  // Per-session terrain memory that is written back to the player save on disconnect.
   terrainMemoryByMap: PlayerSave["terrainMemoryByMap"];
 }
 
 const logger = createLogger("gameWorld");
+// Rotation and thrust constants tune the prototype ship movement model.
 const rotationStep = 0.1;
 const forwardThrust = 80;
 const reverseThrust = 40;
 
 export class GameWorld {
+  // persistence owns all durable repositories used by the authoritative simulation.
   readonly persistence: PersistenceBundle;
+  // worldId scopes saves/maps for the current prototype world.
   readonly worldId = asWorldId("world-alpha");
+  // runtime holds in-memory active maps, entities, drops, projectiles, and players.
   readonly runtime: WorldRuntimeState;
+  // sessions track connected players and per-session visibility memory.
   private readonly sessions = new Map<string, PlayerSessionState>();
+  // pendingMessages stores one-off server messages until GameServer flushes them to sockets.
   private readonly pendingMessages = new Map<string, ServerMessage[]>();
+  // feedbackTimestamps throttle repeated action feedback by player and feedback code.
   private readonly feedbackTimestamps = new Map<string, Map<string, number>>();
+  // tickCounter gives snapshots and generated entity ids a monotonic runtime counter.
   private tickCounter = 0;
+  // persistentWorld stores graph/map summary metadata alongside active runtime maps.
   private persistentWorld: PersistentWorld = createWorldGraph(this.worldId);
 
+  // Creates an authoritative game world with injected persistence for tests or alternate storage.
   constructor(persistence: PersistenceBundle = createInMemoryPersistence()) {
     this.persistence = persistence;
     this.runtime = createRuntimeState();
   }
 
+  // Loads or seeds world/map persistence before clients connect.
   async initialize(): Promise<void> {
+    // Load the persistent graph first because map persistence needs the map summaries inside it.
     const storedWorld = await this.persistence.worlds.getWorld(this.worldId);
     this.persistentWorld = storedWorld ?? createWorldGraph(this.worldId);
     if (!storedWorld) {
       await this.persistence.worlds.saveWorld(this.persistentWorld);
     }
 
+    // Hydrate every known map from storage or save the fresh runtime template on first boot.
     for (const mapSummary of Object.values(this.persistentWorld.maps)) {
       const persisted = await this.persistence.maps.getMapState(this.worldId, mapSummary.id);
       if (persisted) {
@@ -79,7 +96,9 @@ export class GameWorld {
     }
   }
 
+  // Connects a player, loading their save into the active runtime map and creating one if needed.
   async connectPlayer(rawPlayerId: string): Promise<PlayerSave> {
+    // Player saves are keyed by branded ids under the current world id.
     const playerId = asPlayerId(rawPlayerId);
     let player = await this.persistence.players.getPlayer(this.worldId, playerId);
     if (!player) {
@@ -89,6 +108,7 @@ export class GameWorld {
 
     player.terrainMemoryByMap ??= {};
 
+    // Finish any offline ship builds before the player sees builder state or active ship data.
     const synced = syncCompletedShipBuilds(player, Date.now());
     player = synced.player;
     if (synced.changed) {
@@ -96,6 +116,7 @@ export class GameWorld {
       await this.persistence.players.savePlayer(player);
     }
 
+    // Create the live ship and nudge it to a valid position if the saved spawn is now blocked.
     const activeShip = resolveActiveShip(player);
     const map = this.runtime.maps[player.spawnPoint.mapId];
     const runtimeShip = createRuntimeShip(playerId, activeShip, player);
@@ -105,6 +126,7 @@ export class GameWorld {
     });
     map.players[playerId] = runtimeShip;
 
+    // Session state intentionally clones terrain memory so visibility updates stay local until save time.
     this.sessions.set(playerId, {
       playerId,
       connectedAt: Date.now(),
@@ -115,11 +137,14 @@ export class GameWorld {
     return player;
   }
 
+  // Disconnects a player, persists their live ship/session state, and removes runtime references.
   async disconnectPlayer(rawPlayerId: string): Promise<void> {
+    // Find the player's live map because they may have changed maps since their save was loaded.
     const playerId = asPlayerId(rawPlayerId);
     const player = await this.persistence.players.getPlayer(this.worldId, playerId);
     const map = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
     if (player && map) {
+      // Copy active runtime ship state back into the player's durable save before deleting it.
       const ship = map.players[playerId];
       const session = this.sessions.get(playerId);
       const storedShip = player.shipStable[player.activeShipId];
@@ -139,16 +164,20 @@ export class GameWorld {
       });
       delete map.players[playerId];
     }
+    // Map state is saved on disconnect so terrain/foundry/objective changes survive process restarts.
     await this.saveAllMaps();
     this.sessions.delete(playerId);
     this.pendingMessages.delete(playerId);
     this.feedbackTimestamps.delete(playerId);
   }
 
+  // Parses and routes one client message through the authoritative server-side handler.
   async handleMessage(rawPlayerId: string, message: unknown): Promise<ServerMessage[]> {
+    // Shared schema parsing rejects malformed client payloads at the server boundary.
     const parsed = clientMessageSchema.parse(message);
     const playerId = asPlayerId(rawPlayerId);
 
+    // A duplicate joinWorld is treated as idempotent and does not emit extra responses.
     if (parsed.type === "joinWorld") {
       const connected = Object.values(this.runtime.maps).some((map) => !!map.players[playerId]);
       if (!connected) {
@@ -157,6 +186,7 @@ export class GameWorld {
       return [];
     }
 
+    // All gameplay messages require an already-connected runtime ship.
     const player = this.getPlayerShip(playerId);
     const now = Date.now();
 
@@ -183,11 +213,14 @@ export class GameWorld {
     }
   }
 
+  // Advances all active maps by one simulation frame.
   async tick(deltaMs = 1000 / 30): Promise<void> {
+    // deltaSeconds is used by velocity integration while deltaMs is used by timers/lifetimes.
     this.tickCounter += 1;
     const deltaSeconds = deltaMs / 1000;
     const now = Date.now();
 
+    // Each map ticks independently so future active maps can simulate at the same cadence.
     for (const map of Object.values(this.runtime.maps)) {
       this.tickPlayers(map, deltaSeconds);
       this.tickProjectiles(map, deltaMs);
@@ -196,9 +229,11 @@ export class GameWorld {
       tickFoundries(map, now, () => `enemy-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`);
     }
 
+    // Build completions are checked after map simulation so player notifications are queued once per tick.
     await this.processShipBuildCompletions(now);
   }
 
+  // Returns and clears queued one-off messages for a player.
   drainPendingMessages(rawPlayerId: string): ServerMessage[] {
     const playerId = asPlayerId(rawPlayerId);
     const pending = this.pendingMessages.get(playerId) ?? [];
@@ -206,6 +241,7 @@ export class GameWorld {
     return pending;
   }
 
+  // Builds the current snapshot for one player, filtered through that player's visibility memory.
   getSnapshot(rawPlayerId: string): SnapshotMessage {
     const playerId = asPlayerId(rawPlayerId);
     const map = this.getPlayerMap(playerId);
@@ -215,6 +251,7 @@ export class GameWorld {
       throw new Error(`Player ${playerId} is missing a session state.`);
     }
 
+    // Visibility shaping hides unknown terrain/entities while preserving remembered terrain cells.
     const visibility = buildPlayerVisibilityView(map, player, session.terrainMemoryByMap);
     return createSnapshotMessage(
       this.tickCounter,
@@ -236,8 +273,10 @@ export class GameWorld {
     );
   }
 
+  // Integrates player ship movement and applies simple drag after collision resolution.
   private tickPlayers(map: ActiveMapState, deltaSeconds: number): void {
     for (const player of Object.values(map.players)) {
+      // Resolve against terrain, structures, players, and enemies so ships cannot overlap blockers.
       const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
         radius: getPlayerShipCollisionRadius(player),
         excludeEntityId: player.id,
@@ -251,8 +290,10 @@ export class GameWorld {
     }
   }
 
+  // Advances projectiles, applies impact damage, creates drops, and removes expired projectiles.
   private tickProjectiles(map: ActiveMapState, deltaMs: number): void {
     for (const projectile of Object.values(map.projectiles)) {
+      // Move first, then sample the previous-to-current path for terrain collision.
       const previousPosition = { ...projectile.position };
       projectile.position.x += projectile.velocity.x * (deltaMs / 1000);
       projectile.position.y += projectile.velocity.y * (deltaMs / 1000);
@@ -260,6 +301,7 @@ export class GameWorld {
 
       const terrainImpact = findTerrainImpactAlongPath(map, previousPosition, projectile.position, 2);
       if (terrainImpact) {
+        // Terrain destruction is persisted immediately so mined walls survive later reconnects.
         projectile.position = terrainImpact;
         const terrainDamage = damageTerrainAt(map, terrainImpact, projectile.damage, this.tickCounter, 0.75);
         if (terrainDamage.destroyed) {
@@ -269,6 +311,7 @@ export class GameWorld {
         continue;
       }
 
+      // Enemy impacts create salvage drops and refresh foundry spawn counts after kills.
       const enemy = Object.values(map.enemies).find((entry) => distance(entry.position, projectile.position) < 14);
       if (enemy) {
         enemy.health -= projectile.damage;
@@ -287,6 +330,7 @@ export class GameWorld {
         continue;
       }
 
+      // Foundry hits may unlock the deeper path and broadcast objective feedback to the whole map.
       const foundryDamage = applyFoundryDamage(map, projectile.position, projectile.damage, this.tickCounter);
       if (foundryDamage.hit) {
         if (foundryDamage.destroyedFoundry) {
@@ -307,14 +351,17 @@ export class GameWorld {
         continue;
       }
 
+      // Lifetime cleanup prevents old projectiles from accumulating in runtime state.
       if (projectile.lifetimeMs <= 0) {
         delete map.projectiles[projectile.id];
       }
     }
   }
 
+  // Updates enemy AI by chasing the nearest visible player and applying contact damage.
   private tickEnemies(map: ActiveMapState, deltaSeconds: number): void {
     for (const enemy of Object.values(map.enemies)) {
+      // Enemy vision uses the same terrain line-of-sight rules as player snapshots.
       const nearestPlayer = findNearestVisiblePlayer(map, enemy);
       if (!nearestPlayer) {
         enemy.aiState = "idle";
@@ -322,6 +369,7 @@ export class GameWorld {
         continue;
       }
 
+      // Chasing enemies steer directly toward the current target using content-defined speed.
       enemy.aiState = "chasing";
       const direction = normalize({
         x: nearestPlayer.position.x - enemy.position.x,
@@ -339,6 +387,7 @@ export class GameWorld {
       enemy.position = resolved.position;
       enemy.velocity = resolved.velocity;
 
+      // Contact damage is intentionally simple for the current vertical slice.
       if (distance(enemy.position, nearestPlayer.position) < 18) {
         const previousHull = nearestPlayer.hull;
         nearestPlayer.hull = Math.max(0, nearestPlayer.hull - 4);
@@ -356,6 +405,7 @@ export class GameWorld {
     refreshFoundryEnemyCounts(map);
   }
 
+  // Transfers nearby resource drops into player runtime inventory and persists the new totals.
   private async collectDrops(map: ActiveMapState): Promise<void> {
     for (const [dropId, drop] of Object.entries(map.drops)) {
       const collector = Object.values(map.players).find((entry) => distance(entry.position, drop.position) < 16);
@@ -363,6 +413,7 @@ export class GameWorld {
         continue;
       }
 
+      // Runtime inventory is the source of truth while connected, then synced back into persistence.
       collector.inventory = addResourceMaps(collector.inventory, drop.resources);
       logger.verbose("Resource pickup", {
         playerId: collector.playerId,
@@ -376,6 +427,7 @@ export class GameWorld {
     }
   }
 
+  // Finds the active runtime map containing a connected player.
   private getPlayerMap(playerId: ReturnType<typeof asPlayerId>) {
     const map = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
     if (!map) {
@@ -384,11 +436,13 @@ export class GameWorld {
     return map;
   }
 
+  // Returns the connected player's live ship from its active runtime map.
   private getPlayerShip(playerId: ReturnType<typeof asPlayerId>) {
     const map = this.getPlayerMap(playerId);
     return map.players[playerId];
   }
 
+  // Applies raw movement input by rotating the ship and adding thrust along its current facing.
   private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean }): void {
     if (input.rotateLeft) {
       player.rotation -= rotationStep;
@@ -397,6 +451,7 @@ export class GameWorld {
       player.rotation += rotationStep;
     }
 
+    // Thrust is integrated at the prototype target tick rate to keep input handling simple.
     const thrust = input.thrustForward ? forwardThrust : input.thrustReverse ? -reverseThrust : 0;
     if (thrust === 0) {
       return;
@@ -410,6 +465,7 @@ export class GameWorld {
     player.velocity.y += forward.y * thrust * (1 / 30);
   }
 
+  // Handles weapon fire and queues feedback for non-cooldown failures.
   private fireWeapon(player: ReturnType<GameWorld["getPlayerShip"]>, message: FireWeaponMessage, now: number): void {
     const map = this.runtime.maps[player.mapId];
     const result = applyWeaponFire(map, player, message, now, () => asEntityId(`projectile-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`));
@@ -418,6 +474,7 @@ export class GameWorld {
     }
   }
 
+  // Handles module activation and persists map changes caused by successful actions.
   private activateModule(player: ReturnType<GameWorld["getPlayerShip"]>, message: ActivateModuleMessage, now: number): void {
     const map = this.runtime.maps[player.mapId];
     const result = activateInstalledModule(map, player, message, now, this.tickCounter);
@@ -431,6 +488,7 @@ export class GameWorld {
     }
   }
 
+  // Returns builder state when the player interacts near a builder site.
   private async interact(playerId: ReturnType<typeof asPlayerId>, _message: InteractMessage, now: number): Promise<ServerMessage[]> {
     if (!this.isBuilderSiteNearby(playerId)) {
       return [];
@@ -441,11 +499,13 @@ export class GameWorld {
       return [];
     }
 
+    // Sync runtime ship/inventory into the save before sending builder data to the client.
     const synced = syncCompletedShipBuilds(player, now).player;
     const hydrated = await this.syncPlayerSaveWithRuntime(playerId, synced);
     return [createBuilderState(hydrated, now)];
   }
 
+  // Moves a player through a map connection when progression gates allow the route.
   private changeMap(playerId: ReturnType<typeof asPlayerId>, message: ChangeMapMessage): void {
     const sourceMap = this.getPlayerMap(playerId);
     const player = sourceMap.players[playerId];
@@ -458,6 +518,7 @@ export class GameWorld {
       this.queueActionFeedback(playerId, "deeper_path_locked", "Path Locked", "Destroy the root foundry to unlock the deeper route.", "info", Date.now(), 1500);
       return;
     }
+    // Transfer the same runtime ship object so hull, modules, inventory, and cooldowns remain intact.
     const destinationMap = this.runtime.maps[connection.destinationMapId];
     delete sourceMap.players[playerId];
     player.mapId = connection.destinationMapId;
@@ -477,6 +538,7 @@ export class GameWorld {
     destinationMap.players[playerId] = player;
   }
 
+  // Handles all builder UI actions that mutate saved ships, resources, modules, or active ship state.
   private async handleBuilderAction(playerId: ReturnType<typeof asPlayerId>, message: BuilderActionMessage, now: number): Promise<ServerMessage[]> {
     if (!this.isBuilderSiteNearby(playerId)) {
       if (message.action === "startShipBuild") {
@@ -489,6 +551,7 @@ export class GameWorld {
       return [];
     }
 
+    // Load the persisted player, then hydrate it from runtime so recent pickups/modules are included.
     let playerSave = await this.persistence.players.getPlayer(this.worldId, playerId);
     if (!playerSave) {
       if (message.action === "startShipBuild") {
@@ -505,9 +568,11 @@ export class GameWorld {
     playerSave = await this.syncPlayerSaveWithRuntime(playerId, playerSave);
     const runtimeMap = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
     const runtimePlayer = runtimeMap?.players[playerId];
+    // resourcesChanged tells us whether the live connected ship inventory needs to mirror save changes.
     let resourcesChanged = false;
 
     if (message.action === "craftModule") {
+      // Crafting spends resources and adds one module stack when the player can afford the recipe.
       const definition = moduleDefinitions.find((entry) => entry.id === message.targetId);
       if (definition && hasEnoughResources(playerSave.resourceCounts, definition.buildCost)) {
         playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, definition.buildCost);
@@ -517,6 +582,7 @@ export class GameWorld {
     }
 
     if (message.action === "startShipBuild") {
+      // Starting a build validates the hull id, spends resources, and creates a stable entry.
       let hull;
       try {
         hull = getHullDefinition(message.targetId);
@@ -542,6 +608,7 @@ export class GameWorld {
       } else {
         playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, hull.buildCost);
         resourcesChanged = true;
+        // Built ship ids include hull and timestamp so repeated builds remain unique.
         const builtShipId = asShipId(`ship-${message.targetId}-${Date.now()}`);
         const buildCompleteAt = hull.buildTimeMs > 0 ? now + hull.buildTimeMs : null;
         playerSave.shipStable[builtShipId] = {
@@ -565,6 +632,7 @@ export class GameWorld {
     }
 
     if (message.action === "swapShip" && playerSave.shipStable[message.targetId] && playerSave.shipStable[message.targetId].status === "ready") {
+      // Swapping makes the old active ship ready and pushes the new active ship into runtime immediately.
       const currentShip = playerSave.shipStable[playerSave.activeShipId];
       if (currentShip) {
         currentShip.status = "ready";
@@ -578,6 +646,7 @@ export class GameWorld {
     }
 
     if (message.action === "installModule" && message.shipId && message.hardpointId) {
+      // Installation validates ship status, hardpoint type, module inventory, and slot compatibility.
       const ship = playerSave.shipStable[message.shipId];
       const hull = ship ? getHullDefinition(ship.hullId) : null;
       const moduleDefinition = moduleDefinitions.find((entry) => entry.id === message.targetId);
@@ -586,6 +655,7 @@ export class GameWorld {
       if (ship && ship.status !== "building" && hull && moduleDefinition && hardpoint && availableModule && hardpoint.type === moduleDefinition.slotType) {
         const existingModule = ship.modules.find((entry) => entry.hardpointId === message.hardpointId);
         if (existingModule) {
+          // Replacing a module returns the previous module to crafted inventory before installing the new one.
           playerSave.craftedModules = this.addCraftedModule(playerSave.craftedModules, existingModule.moduleId, 1);
           ship.modules = ship.modules.filter((entry) => entry.hardpointId !== message.hardpointId);
         }
@@ -603,6 +673,7 @@ export class GameWorld {
     }
 
     if (message.action === "removeModule" && message.shipId && message.hardpointId) {
+      // Removal returns the installed module to crafted inventory and syncs runtime if this is the active ship.
       const ship = playerSave.shipStable[message.shipId];
       if (ship && ship.status !== "building") {
         const existingModule = ship.modules.find((entry) => entry.hardpointId === message.hardpointId);
@@ -618,6 +689,7 @@ export class GameWorld {
     }
 
     if (resourcesChanged && runtimePlayer) {
+      // Keep connected runtime inventory aligned with builder save changes before the next snapshot.
       syncRuntimeInventoryFromSave(runtimePlayer, playerSave);
     }
 
@@ -626,6 +698,7 @@ export class GameWorld {
     return [createBuilderState(playerSave, now)];
   }
 
+  // Hydrates the saved player record with connected runtime ship, inventory, position, and terrain memory.
   private async syncPlayerSaveWithRuntime(playerId: ReturnType<typeof asPlayerId>, playerSave: PlayerSave): Promise<PlayerSave> {
     const runtimeMap = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
     const runtimePlayer = runtimeMap?.players[playerId];
@@ -644,6 +717,7 @@ export class GameWorld {
     return synced;
   }
 
+  // Persists runtime inventory/resource state for a connected player after pickup collection.
   private async syncRuntimeInventoryToPersistence(playerId: ReturnType<typeof asPlayerId>): Promise<void> {
     const playerSave = await this.persistence.players.getPlayer(this.worldId, playerId);
     if (!playerSave) {
@@ -660,6 +734,7 @@ export class GameWorld {
     });
   }
 
+  // Checks whether a connected player is close enough to use the builder site.
   private isBuilderSiteNearby(playerId: ReturnType<typeof asPlayerId>): boolean {
     const map = this.getPlayerMap(playerId);
     const player = map.players[playerId];
@@ -668,6 +743,7 @@ export class GameWorld {
     );
   }
 
+  // Adds quantity to a crafted module stack and removes any empty stacks from the returned list.
   private addCraftedModule(stacks: PlayerSave["craftedModules"], moduleId: string, quantity: number): PlayerSave["craftedModules"] {
     const nextStacks = stacks.map((entry) => ({ ...entry }));
     const existing = nextStacks.find((entry) => entry.moduleId === moduleId);
@@ -679,12 +755,14 @@ export class GameWorld {
     return nextStacks.filter((entry) => entry.quantity > 0);
   }
 
+  // Removes quantity from a crafted module stack and drops empty stacks from the returned list.
   private removeCraftedModule(stacks: PlayerSave["craftedModules"], moduleId: string, quantity: number): PlayerSave["craftedModules"] {
     return stacks
       .map((entry) => (entry.moduleId === moduleId ? { ...entry, quantity: entry.quantity - quantity } : { ...entry }))
       .filter((entry) => entry.quantity > 0);
   }
 
+  // Checks connected players for newly completed ship builds and queues completion messages.
   private async processShipBuildCompletions(now: number): Promise<void> {
     for (const session of this.sessions.values()) {
       const player = await this.persistence.players.getPlayer(this.worldId, session.playerId);
@@ -708,12 +786,14 @@ export class GameWorld {
     }
   }
 
+  // Appends a one-off server message to the player's pending outbound queue.
   private queueMessage(playerId: ReturnType<typeof asPlayerId>, message: ServerMessage): void {
     const existing = this.pendingMessages.get(playerId) ?? [];
     existing.push(message);
     this.pendingMessages.set(playerId, existing);
   }
 
+  // Queues throttled player-facing action feedback for rejected or informational actions.
   private queueActionFeedback(
     playerId: ReturnType<typeof asPlayerId>,
     code: string,
@@ -724,6 +804,7 @@ export class GameWorld {
     throttleMs = 1200,
     force = false
   ): void {
+    // The timestamp map prevents the same warning from spamming the client every tick/input repeat.
     const timestamps = this.feedbackTimestamps.get(playerId) ?? new Map<string, number>();
     const lastSentAt = timestamps.get(code) ?? 0;
     if (!force && now - lastSentAt < throttleMs) {
@@ -743,6 +824,7 @@ export class GameWorld {
     });
   }
 
+  // Broadcasts the same action feedback to every player currently on a map.
   private queueMapFeedback(
     mapId: string,
     code: string,
@@ -762,6 +844,7 @@ export class GameWorld {
     }
   }
 
+  // Converts internal action failure codes into localized-enough prototype UI feedback.
   private queueAttemptFailure(playerId: ReturnType<typeof asPlayerId>, code: string, now: number): void {
     switch (code) {
       case "weapon_not_installed":
@@ -806,6 +889,7 @@ export class GameWorld {
     }
   }
 
+  // Persists all active maps and clears dirty chunk markers after successful writes.
   private async saveAllMaps(): Promise<void> {
     for (const [mapId, map] of Object.entries(this.runtime.maps)) {
       await this.persistence.maps.saveMapState(this.worldId, serializeMapState(map, this.persistentWorld.maps[mapId]));
@@ -815,4 +899,3 @@ export class GameWorld {
     }
   }
 }
-

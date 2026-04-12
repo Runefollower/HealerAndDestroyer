@@ -22,16 +22,20 @@ import { CHUNK_SIZE } from "./createWorld.js";
 import { TILE_SIZE, worldToTile } from "./terrain.js";
 import { getStructureCollisionRadius } from "./collision.js";
 
+// Terrain visibility values are numeric because snapshots store one value per terrain cell.
 const hiddenVisibility = 0 as TerrainVisibilityState;
 const rememberedVisibility = 1 as TerrainVisibilityState;
 const visibleVisibility = 2 as TerrainVisibilityState;
+// Player vision radius is measured in terrain tiles, not pixels.
 const playerVisionRadiusTiles = 7;
+// Enemy vision radii are tuned per enemy type so AI awareness can differ by content id.
 const enemyVisionRadiusTilesByType: Record<string, number> = {
   "drone-scout": 6,
   "burrow-sentry": 5
 };
 
 export interface PlayerVisibilityView {
+  // Snapshot arrays are already filtered and shaped for one receiving player.
   chunks: ChunkSnapshot[];
   players: PlayerSnapshot[];
   enemies: EnemySnapshot[];
@@ -39,19 +43,24 @@ export interface PlayerVisibilityView {
   structures: StructureSnapshot[];
   foundries: FoundrySnapshot[];
   drops: DropSnapshot[];
+  // visibleTiles is reused by callers that need the exact tile set for additional logic.
   visibleTiles: Set<string>;
+  // memoryChanged flags when fog-of-war memory should eventually be persisted.
   memoryChanged: boolean;
 }
 
+// Builds the fog-of-war-filtered snapshot payload for one player and updates terrain memory.
 export function buildPlayerVisibilityView(
   map: ActiveMapState,
   self: PlayerShipState,
   terrainMemoryByMap: PlayerSave["terrainMemoryByMap"]
 ): PlayerVisibilityView {
+  // Terrain memory is saved per player per map so explored cells remain known after reconnect.
   const memory = ensureTerrainMemoryMap(terrainMemoryByMap, map.id);
   const visibleTiles = computeVisibleTiles(map, self.position, playerVisionRadiusTiles);
   let memoryChanged = false;
 
+  // Every chunk is returned, but cells are hidden, remembered, or current based on visibility.
   const chunks = Object.entries(map.chunks).map(([chunkKey, chunk]) => {
     const memoryChunk = ensureMemoryChunk(memory, chunkKey, chunk.cells.length);
     const cells = new Array<number>(chunk.cells.length).fill(0);
@@ -65,6 +74,7 @@ export function buildPlayerVisibilityView(
       const key = createTileKey(tileX, tileY);
 
       if (visibleTiles.has(key)) {
+        // Currently visible tiles update memory with the latest authoritative terrain value.
         const currentCell = chunk.cells[index] ?? 0;
         cells[index] = currentCell;
         visibility[index] = visibleVisibility;
@@ -77,6 +87,7 @@ export function buildPlayerVisibilityView(
       }
 
       if (memoryChunk.explored[index]) {
+        // Previously explored hidden tiles show remembered terrain instead of live changes.
         cells[index] = memoryChunk.cells[index] ?? 0;
         visibility[index] = rememberedVisibility;
       }
@@ -93,6 +104,7 @@ export function buildPlayerVisibilityView(
 
   return {
     chunks,
+    // Non-terrain entities are included only when their positions fall inside the visible tile set.
     players: Object.values(map.players)
       .filter((player) => player.playerId === self.playerId || isPositionVisible(player.position, visibleTiles))
       .map(toPlayerSnapshot),
@@ -116,6 +128,7 @@ export function buildPlayerVisibilityView(
   };
 }
 
+// Finds the nearest player an enemy can currently see through terrain line-of-sight.
 export function findNearestVisiblePlayer(map: ActiveMapState, enemy: EnemyState): PlayerShipState | null {
   const visibleTiles = computeVisibleTiles(map, enemy.position, getEnemyVisionRadiusTiles(enemy));
   const candidates = Object.values(map.players)
@@ -124,6 +137,7 @@ export function findNearestVisiblePlayer(map: ActiveMapState, enemy: EnemyState)
   return candidates[0] ?? null;
 }
 
+// Computes all tiles visible from an origin within a tile radius and line-of-sight constraints.
 export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y: number }, radiusTiles: number): Set<string> {
   const originTile = worldToTile(origin);
   const visibleTiles = new Set<string>();
@@ -131,6 +145,7 @@ export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y:
     return visibleTiles;
   }
 
+  // Scan known chunks instead of infinite map bounds so visibility stays limited to active terrain data.
   for (const chunk of Object.values(map.chunks)) {
     for (let index = 0; index < chunk.cells.length; index += 1) {
       const localX = index % CHUNK_SIZE;
@@ -149,15 +164,18 @@ export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y:
   return visibleTiles;
 }
 
+// Returns the vision radius for an enemy type, falling back to the conservative default.
 function getEnemyVisionRadiusTiles(enemy: EnemyState): number {
   return enemyVisionRadiusTilesByType[enemy.enemyTypeId] ?? 5;
 }
 
+// Converts a world-space point into a terrain tile key and checks it against the visible set.
 function isPositionVisible(position: { x: number; y: number }, visibleTiles: Set<string>): boolean {
   const tile = worldToTile(position);
   return !!tile && visibleTiles.has(createTileKey(tile.tileX, tile.tileY));
 }
 
+// Uses Bresenham-style line walking to determine whether terrain blocks sight to a tile.
 function hasLineOfSightToTile(map: ActiveMapState, originTileX: number, originTileY: number, targetTileX: number, targetTileY: number): boolean {
   let currentX = originTileX;
   let currentY = originTileY;
@@ -167,6 +185,7 @@ function hasLineOfSightToTile(map: ActiveMapState, originTileX: number, originTi
   const stepY = originTileY < targetTileY ? 1 : -1;
   let error = deltaX + deltaY;
 
+  // Step tile-by-tile until hitting a blocker or the target tile.
   while (true) {
     const isOrigin = currentX === originTileX && currentY === originTileY;
     const isTarget = currentX === targetTileX && currentY === targetTileY;
@@ -189,6 +208,7 @@ function hasLineOfSightToTile(map: ActiveMapState, originTileX: number, originTi
   }
 }
 
+// Determines whether a terrain tile blocks vision.
 function isVisionBlockingTile(map: ActiveMapState, tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0) {
     return true;
@@ -209,6 +229,7 @@ function isVisionBlockingTile(map: ActiveMapState, tileX: number, tileY: number)
   return cellValue > 0;
 }
 
+// Returns an existing terrain memory map or creates an empty one for the player/map pair.
 function ensureTerrainMemoryMap(terrainMemoryByMap: PlayerSave["terrainMemoryByMap"], mapId: string): TerrainMemoryMapState {
   const existing = terrainMemoryByMap[mapId];
   if (existing) {
@@ -220,9 +241,11 @@ function ensureTerrainMemoryMap(terrainMemoryByMap: PlayerSave["terrainMemoryByM
   return created;
 }
 
+// Returns a memory chunk with arrays resized to match the current authoritative chunk cell count.
 function ensureMemoryChunk(memory: TerrainMemoryMapState, chunkKey: string, cellCount: number): TerrainMemoryChunkState {
   const existing = memory.chunks[chunkKey];
   if (existing) {
+    // Resize older memory records defensively if the prototype chunk shape changes.
     if (existing.cells.length !== cellCount) {
       existing.cells = existing.cells.slice(0, cellCount);
       while (existing.cells.length < cellCount) {
@@ -246,10 +269,12 @@ function ensureMemoryChunk(memory: TerrainMemoryMapState, chunkKey: string, cell
   return created;
 }
 
+// Creates the stable string key used for tile visibility sets.
 function createTileKey(tileX: number, tileY: number): string {
   return `${tileX},${tileY}`;
 }
 
+// Converts live player state into the network snapshot shape.
 function toPlayerSnapshot(player: PlayerShipState): PlayerSnapshot {
   return {
     id: player.id,
@@ -265,6 +290,7 @@ function toPlayerSnapshot(player: PlayerShipState): PlayerSnapshot {
   };
 }
 
+// Converts live enemy state into the network snapshot shape.
 function toEnemySnapshot(enemy: EnemyState): EnemySnapshot {
   return {
     id: enemy.id,
@@ -275,6 +301,7 @@ function toEnemySnapshot(enemy: EnemyState): EnemySnapshot {
   };
 }
 
+// Converts live projectile state into the network snapshot shape.
 function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
   return {
     id: projectile.id,
@@ -282,6 +309,7 @@ function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
   };
 }
 
+// Converts live structure state into the network snapshot shape.
 function toStructureSnapshot(structure: StructureState): StructureSnapshot {
   return {
     id: structure.id,
@@ -292,6 +320,7 @@ function toStructureSnapshot(structure: StructureState): StructureSnapshot {
   };
 }
 
+// Converts live foundry state into the network snapshot shape.
 function toFoundrySnapshot(foundry: FoundryState): FoundrySnapshot {
   return {
     id: foundry.id,
@@ -304,6 +333,7 @@ function toFoundrySnapshot(foundry: FoundryState): FoundrySnapshot {
   };
 }
 
+// Converts live resource drop state into the network snapshot shape.
 function toDropSnapshot(drop: ActiveMapState["drops"][string]): DropSnapshot {
   return {
     id: drop.id,
@@ -311,4 +341,3 @@ function toDropSnapshot(drop: ActiveMapState["drops"][string]): DropSnapshot {
     resources: drop.resources
   };
 }
-

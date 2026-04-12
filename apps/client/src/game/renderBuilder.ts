@@ -2,6 +2,7 @@ import { getHullDefinition, hullDefinitions, moduleDefinitions } from "@healer/c
 import type { BuilderStateMessage, BuilderShipState } from "@healer/shared";
 import { playerShipPartCatalog, renderPlayerShipPreviewMarkup } from "./playerShipAssets.js";
 
+// Formats build countdowns into compact user-facing builder UI text.
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -12,6 +13,7 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+// Computes remaining build time using the server/client clock offset from the latest builder message.
 function getRemainingBuildMs(shipState: BuilderShipState, clockOffsetMs: number): number {
   if (shipState.ship.status !== "building" || !shipState.ship.buildCompleteAt) {
     return 0;
@@ -19,6 +21,7 @@ function getRemainingBuildMs(shipState: BuilderShipState, clockOffsetMs: number)
   return Math.max(0, shipState.ship.buildCompleteAt - (Date.now() + clockOffsetMs));
 }
 
+// Converts a ship build timer into a 0..1 progress ratio for the progress bar.
 function getBuildProgress(shipState: BuilderShipState, remainingBuildMs: number): number {
   const startedAt = shipState.ship.buildStartedAt;
   const completeAt = shipState.ship.buildCompleteAt;
@@ -30,7 +33,9 @@ function getBuildProgress(shipState: BuilderShipState, remainingBuildMs: number)
   return Math.min(1, Math.max(0, (total - remainingBuildMs) / total));
 }
 
+// Renders one ship card including preview art, build status, swap action, and module hardpoints.
 function renderShipCard(shipState: BuilderShipState, message: BuilderStateMessage, clockOffsetMs: number): string {
+  // Ship/hull metadata drives both available hardpoints and compatible module installation controls.
   const ship = shipState.ship;
   const hull = getHullDefinition(ship.hullId);
   const installedByHardpoint = new Map(ship.modules.map((module) => [module.hardpointId, module]));
@@ -40,6 +45,7 @@ function renderShipCard(shipState: BuilderShipState, message: BuilderStateMessag
 
   const hardpoints = hull.hardpoints
     .map((hardpoint) => {
+      // For each hardpoint, only crafted modules with matching slot type are offered for install.
       const installed = installedByHardpoint.get(hardpoint.id);
       const compatibleModules = message.craftedModules.filter((stack) => {
         const definition = moduleDefinitions.find((module) => module.id === stack.moduleId);
@@ -67,6 +73,7 @@ function renderShipCard(shipState: BuilderShipState, message: BuilderStateMessag
     })
     .join("");
 
+  // Status/progress copy keeps build timers visible without asking for new server state every frame.
   const statusCopy = ship.status === "building"
     ? `Construction underway: ${formatDuration(remainingBuildMs)} remaining`
     : ship.status === "ready"
@@ -102,6 +109,7 @@ function renderShipCard(shipState: BuilderShipState, message: BuilderStateMessag
   `;
 }
 
+// Renders a grouped ship section such as active, stored, or building ships.
 function renderShipSection(title: string, ships: BuilderShipState[], message: BuilderStateMessage, clockOffsetMs: number, emptyState: string): string {
   return `
     <div style="margin-top: 14px">
@@ -111,6 +119,7 @@ function renderShipSection(title: string, ships: BuilderShipState[], message: Bu
   `;
 }
 
+// Renders the available visual part library in the builder panel.
 function renderPartGallery(title: string, partType: keyof typeof playerShipPartCatalog): string {
   const parts = playerShipPartCatalog[partType];
   return `
@@ -134,11 +143,14 @@ function renderPartGallery(title: string, partType: keyof typeof playerShipPartC
   `;
 }
 
+// Renders the full builder panel from the latest server builder state.
 export function renderBuilderState(builder: HTMLElement, message: BuilderStateMessage, clockOffsetMs: number): void {
+  // Split ships by status so the player can scan active, ready, and building inventory separately.
   const activeShips = message.ships.filter((entry) => entry.ship.status === "active");
   const readyShips = message.ships.filter((entry) => entry.ship.status === "ready");
   const buildingShips = message.ships.filter((entry) => entry.ship.status === "building");
 
+  // Module and hull build controls are generated from content definitions.
   const moduleButtons = moduleDefinitions
     .map((module) => `<button data-action="craft" data-target="${module.id}">Craft ${module.name}</button>`)
     .join("");
@@ -146,6 +158,7 @@ export function renderBuilderState(builder: HTMLElement, message: BuilderStateMe
     .map((hull) => `<button data-action="build" data-target="${hull.id}">Build ${hull.name}</button>`)
     .join("");
 
+  // Summary sections keep resource/build state readable before the detailed ship cards.
   const craftedModuleSummary = message.craftedModules.length
     ? message.craftedModules.map((entry) => `<div>${entry.moduleId}: ${entry.quantity}</div>`).join("")
     : '<div class="muted-copy">No crafted modules in storage.</div>';
@@ -174,12 +187,14 @@ export function renderBuilderState(builder: HTMLElement, message: BuilderStateMe
   `;
 }
 
+// Updates live build timers/progress bars without replacing the whole builder DOM every frame.
 export function refreshBuilderTimers(builder: HTMLElement, message: BuilderStateMessage, clockOffsetMs: number): void {
   for (const shipState of message.ships) {
     if (shipState.ship.status !== "building") {
       continue;
     }
 
+    // The data attributes are emitted by renderShipCard and let us patch only timer-related nodes.
     const remainingBuildMs = getRemainingBuildMs(shipState, clockOffsetMs);
     const progress = Math.round(getBuildProgress(shipState, remainingBuildMs) * 100);
     const statusNode = builder.querySelector<HTMLElement>(`[data-build-status="${shipState.ship.id}"]`);

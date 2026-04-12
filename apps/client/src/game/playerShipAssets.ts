@@ -5,26 +5,38 @@ import { Assets, Container, Graphics, Sprite, Texture } from "pixi.js";
 export type ShipPartKind = "hull" | "engine" | "weapon";
 
 export interface ShipPartOption {
+  // id is the stable variant id used for deterministic visual selection.
   id: string;
+  // label is shown in the builder part gallery.
   label: string;
+  // kind determines layering and gallery grouping.
   kind: ShipPartKind;
+  // textureUrl points to the SVG/bitmap asset used by Pixi and HTML previews.
   textureUrl: string;
+  // width/height define the rendered size in world-space pixels.
   width: number;
   height: number;
+  // offset positions the part relative to the ship center in local ship space.
   offset: { x: number; y: number };
+  // compatibleHullIds limits hull art variants to matching hull definitions.
   compatibleHullIds?: string[];
+  // compatibleModuleIds limits engine/weapon art to installed module ids.
   compatibleModuleIds?: string[];
 }
 
 interface ShipVisualLoadout {
+  // Each loadout slot is nullable so missing art can fall back gracefully.
   hull: ShipPartOption | null;
   engine: ShipPartOption | null;
   weapon: ShipPartOption | null;
 }
 
+// Textures are cached by URL after preloading so display creation is cheap during snapshots.
 const textureCache = new Map<string, Texture>();
+// preloadPromise keeps asset preloading idempotent.
 let preloadPromise: Promise<void> | null = null;
 
+// Catalog of prototype ship art layers used by Pixi rendering and builder previews.
 export const playerShipPartCatalog: Record<ShipPartKind, ShipPartOption[]> = {
   hull: [
     {
@@ -134,8 +146,10 @@ export const playerShipPartCatalog: Record<ShipPartKind, ShipPartOption[]> = {
   ]
 };
 
+// allParts flattens the catalog for bulk asset preloading.
 const allParts = Object.values(playerShipPartCatalog).flat();
 
+// Preloads every player ship part texture before the first world/builder render.
 export function preloadPlayerShipTextures(): Promise<void> {
   if (preloadPromise) {
     return preloadPromise;
@@ -151,20 +165,25 @@ export function preloadPlayerShipTextures(): Promise<void> {
   return preloadPromise;
 }
 
+// Creates the layered Pixi display for a player ship from hull id, installed modules, and seed.
 export function createPlayerShipDisplay(hullId: string, modules: InstalledModule[], seed: string, isSelf: boolean): Container {
   const display = new Container();
+  // The loadout chooses deterministic visual variants so a ship stays visually stable between snapshots.
   const loadout = resolvePlayerShipLoadout(hullId, modules, seed);
 
+  // Draw a subtle glow under every ship to keep it readable over terrain.
   const glow = new Graphics();
   glow.ellipse(0, 0, 23, 15).fill(isSelf ? 0x2b89c7 : 0x4f6177);
   glow.alpha = isSelf ? 0.24 : 0.16;
   display.addChild(glow);
 
   if (!loadout.hull) {
+    // Fallback art keeps unknown or not-yet-authored hulls visible during development.
     display.addChild(createFallbackShipBody(isSelf));
     return display;
   }
 
+  // Layer order puts engines behind the hull and weapons above the hull.
   for (const part of [loadout.engine, loadout.hull, loadout.weapon]) {
     if (!part) {
       continue;
@@ -181,8 +200,10 @@ export function createPlayerShipDisplay(hullId: string, modules: InstalledModule
   return display;
 }
 
+// Creates the HTML preview markup used inside the builder panel for a saved ship.
 export function renderPlayerShipPreviewMarkup(hullId: string, modules: InstalledModule[], seed: string, label: string): string {
   const loadout = resolvePlayerShipLoadout(hullId, modules, seed);
+  // HTML previews use the same loadout rules as Pixi rendering so builder and world agree.
   const parts = [loadout.engine, loadout.hull, loadout.weapon]
     .filter((part): part is ShipPartOption => part !== null)
     .map(
@@ -203,6 +224,7 @@ export function renderPlayerShipPreviewMarkup(hullId: string, modules: Installed
   return `<div class="ship-preview" aria-label="${label}">${parts}</div>`;
 }
 
+// Resolves the deterministic visual parts that match the ship hull and installed modules.
 function resolvePlayerShipLoadout(hullId: string, modules: InstalledModule[], seed: string): ShipVisualLoadout {
   const hullOptions = playerShipPartCatalog.hull.filter((part) => part.compatibleHullIds?.includes(hullId));
   const engineModules = modules.filter((module) => getModuleDefinition(module.moduleId).slotType === "engine");
@@ -215,11 +237,13 @@ function resolvePlayerShipLoadout(hullId: string, modules: InstalledModule[], se
   };
 }
 
+// Selects a visual part variant compatible with at least one installed module.
 function pickCompatibleVariant(seed: string, options: ShipPartOption[], modules: InstalledModule[]): ShipPartOption | null {
   const compatible = options.filter((option) => modules.some((module) => option.compatibleModuleIds?.includes(module.moduleId)));
   return pickVariant(seed, compatible);
 }
 
+// Picks a stable option from a list using a hash seed.
 function pickVariant<T>(seed: string, options: T[]): T | null {
   if (!options.length) {
     return null;
@@ -228,6 +252,7 @@ function pickVariant<T>(seed: string, options: T[]): T | null {
   return options[hashString(seed) % options.length] ?? null;
 }
 
+// Produces a deterministic unsigned hash for variant selection.
 function hashString(value: string): number {
   let hash = 0;
   for (const char of value) {
@@ -236,6 +261,7 @@ function hashString(value: string): number {
   return hash;
 }
 
+// Draws a simple fallback ship body when no compatible hull art exists.
 function createFallbackShipBody(isSelf: boolean): Container {
   const container = new Container();
   const hull = new Graphics();

@@ -3,27 +3,35 @@ import { distance, normalize, scaleVec2, type ActiveMapState, type ActivateModul
 import { mineTerrainAt } from "./terrain.js";
 
 export interface ActionAttemptResult {
+  // ok marks whether the action mutated gameplay state.
   ok: boolean;
+  // code is stable enough for GameWorld to map failures to player-facing feedback.
   code: string;
+  // hardpointId identifies the installed module involved when one was found.
   hardpointId?: string;
 }
 
+// Checks whether a hardpoint cooldown has elapsed at the current server time.
 function isModuleReady(player: PlayerShipState, hardpointId: string, now: number): boolean {
   return (player.moduleCooldowns[hardpointId] ?? 0) <= now;
 }
 
+// Records the next server timestamp at which a hardpoint can be used again.
 function markModuleUsed(player: PlayerShipState, hardpointId: string, nextReadyAt: number): void {
   player.moduleCooldowns[hardpointId] = nextReadyAt;
 }
 
+// Finds an installed module by either hardpoint id or module id for flexible client messages.
 function findInstalledModule(player: PlayerShipState, identifier: string) {
   return player.modules.find((entry) => entry.hardpointId === identifier || entry.moduleId === identifier);
 }
 
+// Returns the first installed module that exposes the requested gameplay capability.
 export function findInstalledModuleByCapability(player: PlayerShipState, capability: "weapon" | "mining" | "support") {
   return player.modules.find((installed) => getModuleDefinition(installed.moduleId).capabilities.includes(capability));
 }
 
+// Validates a weapon fire request and creates a projectile when the installed module can fire.
 export function applyWeaponFire(
   map: ActiveMapState,
   player: PlayerShipState,
@@ -31,6 +39,7 @@ export function applyWeaponFire(
   now: number,
   projectileIdFactory: () => EntityId
 ): ActionAttemptResult {
+  // Resolve the selected installed module and verify it really owns weapon capability data.
   const installedModule = findInstalledModule(player, message.weaponHardpointId);
   if (!installedModule) {
     return { ok: false, code: "weapon_not_installed" };
@@ -49,6 +58,7 @@ export function applyWeaponFire(
     return { ok: false, code: "weapon_on_cooldown", hardpointId: installedModule.hardpointId };
   }
 
+  // Hardpoint orientation controls projectile direction and muzzle offset in the rotated ship frame.
   const hull = getHullDefinition(player.hullId);
   const hardpoint = hull.hardpoints.find((entry) => entry.id === installedModule.hardpointId);
   const direction = hardpoint ? rotateVec2(directionFromOrientation(hardpoint.orientation), player.rotation) : facingDirection(player.rotation);
@@ -58,6 +68,7 @@ export function applyWeaponFire(
     y: player.position.y + mountOffset.y + direction.y * 8
   };
 
+  // Projectiles use weapon range as their velocity magnitude for the current prototype.
   const projectileId = projectileIdFactory();
   map.projectiles[projectileId] = {
     id: projectileId,
@@ -72,6 +83,7 @@ export function applyWeaponFire(
   return { ok: true, code: "weapon_fired", hardpointId: installedModule.hardpointId };
 }
 
+// Validates and applies non-weapon module actions such as mining and support repair.
 export function activateInstalledModule(
   map: ActiveMapState,
   player: PlayerShipState,
@@ -79,6 +91,7 @@ export function activateInstalledModule(
   now: number,
   tickCounter: number
 ): ActionAttemptResult {
+  // Most module actions start by resolving the installed module and checking shared cooldown state.
   const installedModule = findInstalledModule(player, message.moduleId);
   if (!installedModule) {
     return { ok: false, code: "module_not_installed" };
@@ -89,6 +102,7 @@ export function activateInstalledModule(
     return { ok: false, code: "module_on_cooldown", hardpointId: installedModule.hardpointId };
   }
 
+  // Mining targets world-space terrain and consumes cooldown only after a tile is actually mined.
   if (moduleDefinition.capabilities.includes("mining") && moduleDefinition.mining) {
     if (!message.targetWorld) {
       return { ok: false, code: "mining_target_missing", hardpointId: installedModule.hardpointId };
@@ -104,6 +118,7 @@ export function activateInstalledModule(
     return { ok: true, code: "terrain_mined", hardpointId: installedModule.hardpointId };
   }
 
+  // Support modules repair the requested allied ship, defaulting to self when no target is provided.
   if (moduleDefinition.capabilities.includes("support") && moduleDefinition.support) {
     const target = message.targetEntityId
       ? Object.values(map.players).find((entry) => entry.id === message.targetEntityId)
@@ -128,6 +143,7 @@ export function activateInstalledModule(
   return { ok: false, code: "module_capability_missing", hardpointId: installedModule.hardpointId };
 }
 
+// Converts a ship rotation angle into a normalized forward vector.
 function facingDirection(rotation: number): Vec2 {
   return normalize({
     x: Math.cos(rotation),
@@ -135,6 +151,7 @@ function facingDirection(rotation: number): Vec2 {
   });
 }
 
+// Converts a hardpoint's named local orientation into an unrotated unit vector.
 function directionFromOrientation(orientation: string): Vec2 {
   switch (orientation) {
     case "north":
@@ -157,6 +174,7 @@ function directionFromOrientation(orientation: string): Vec2 {
   }
 }
 
+// Rotates a vector from ship-local space into world space.
 function rotateVec2(vector: Vec2, rotation: number): Vec2 {
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);

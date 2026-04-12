@@ -4,37 +4,51 @@ import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
 import { createEnemyDisplay, createFoundryDisplay, createSalvageDisplay, createStructureDisplay } from "./worldEntityAssets.js";
 
+// Terrain tile size matches the server's terrain cell size in world-space pixels.
 const terrainTileSize = 32;
+// Terrain sprites are intentionally larger than a tile to overlap and soften grid edges.
 const terrainSpriteSize = 46;
 const terrainSpriteInset = (terrainSpriteSize - terrainTileSize) / 2;
+// Projectile history stores previous positions so projectile effects can draw directional trails.
 const projectileHistory = new Map<string, { x: number; y: number; seenAt: number }>();
 const projectileHistoryTtlMs = 1_500;
+// Terrain bursts are short-lived effects emitted when a previously visible cell disappears.
 const terrainBurstLifetimeMs = 420;
 const maxTerrainBursts = 24;
+// previousTerrainSnapshot tracks visible terrain cells from the prior render for destruction effects.
 let previousTerrainSnapshot: { mapId: string; cells: Map<string, TerrainCellRecord> } | null = null;
 const terrainBursts: TerrainBurst[] = [];
 
 interface TerrainCellRecord {
+  // value is the terrain material value from the snapshot cell.
   value: number;
+  // x/y are the world-space center of the terrain cell.
   x: number;
   y: number;
 }
 
 interface TerrainBurst {
+  // x/y are the world-space center where the burst effect should play.
   x: number;
   y: number;
+  // createdAt is a performance timestamp used to fade the effect.
   createdAt: number;
+  // seed gives each burst deterministic shard directions.
   seed: number;
+  // tint is derived from the destroyed terrain material.
   tint: number;
 }
 
 export interface HudSelections {
+  // Labels for the currently selected module hardpoints in each capability group.
   weapon: string;
   mining: string;
   support: string;
 }
 
+// Renders the HTML mission HUD from the latest visibility-filtered snapshot.
 export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized: boolean, selections: HudSelections): void {
+  // Inventory arrives as a resource map and is flattened into simple HUD copy.
   const inventoryEntries = Object.entries(snapshot.inventory)
     .map(([resource, amount]) => `${resource}: ${amount}`)
     .join("<br/>");
@@ -43,6 +57,7 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
 
   hud.classList.toggle("minimized", minimized);
 
+  // Minimized mode keeps the objective visible while hiding the detailed status panel.
   if (minimized) {
     hud.innerHTML = `
       <div class="hud-header">
@@ -79,7 +94,9 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
   `;
 }
 
+// Redraws the full Pixi world layer from one server snapshot.
 export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage): void {
+  // Transient visual state is updated before clearing the layer for a fresh snapshot render.
   const now = typeof performance !== "undefined" ? performance.now() : Date.now();
   pruneProjectileHistory(snapshot.projectiles, now);
   const terrainCells = buildTerrainCellMap(snapshot);
@@ -87,6 +104,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   pruneTerrainBursts(now);
   worldLayer.removeChildren();
 
+  // Draw visible and remembered terrain cells before entities.
   for (const chunk of snapshot.chunks) {
     chunk.cells.forEach((cell, index) => {
       const cellVisibility = chunk.visibility[index] ?? 0;
@@ -116,6 +134,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
         sprite.tint = 0xb7ccd8;
       }
       if (cellVisibility === 1) {
+        // Remembered cells are tinted and dimmed to distinguish fog-of-war memory from live vision.
         sprite.tint = cell === 2 ? 0x8fa3b2 : 0x7f8a95;
         sprite.alpha *= 0.7;
       }
@@ -123,11 +142,13 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     });
   }
 
+  // Add terrain destruction bursts after terrain so the effects sit above the cells.
   for (const burst of terrainBursts) {
     const burstDisplay = createTerrainBurstEffect(burst, now);
     worldLayer.addChild(burstDisplay);
   }
 
+  // Structures and foundries render before mobile entities so ships/enemies remain readable.
   for (const structure of snapshot.structures) {
     const sprite = createStructureDisplay(structure.structureTypeId);
     sprite.position.set(structure.position.x, structure.position.y);
@@ -139,6 +160,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     sprite.position.set(foundry.position.x, foundry.position.y);
     worldLayer.addChild(sprite);
 
+    // Foundry status labels expose objective health without requiring a separate HUD entry.
     const statusLabel = new Text({
       text: foundry.active ? `Foundry ${foundry.health} HP` : "Foundry Down",
       style: { fontSize: 12, fill: foundry.active ? 0xffd7cf : 0xb6c0cc }
@@ -147,6 +169,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     worldLayer.addChild(statusLabel);
   }
 
+  // Drops, enemies, projectiles, and players are all already visibility-filtered by the server.
   for (const drop of snapshot.drops) {
     const sprite = createSalvageDisplay(drop.resources);
     sprite.position.set(drop.position.x, drop.position.y);
@@ -161,6 +184,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   }
 
   for (const projectile of snapshot.projectiles) {
+    // Update projectile history after drawing so the next frame can infer trail direction.
     const fx = createProjectileEffect(projectile, now);
     worldLayer.addChild(fx);
     projectileHistory.set(projectile.id, {
@@ -171,12 +195,14 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   }
 
   for (const player of snapshot.players) {
+    // Self ships use stronger accenting than allied ships.
     const isSelf = player.playerId === snapshot.selfPlayerId;
     const ship = createPlayerShipDisplay(player.hullId, player.modules, player.shipId, isSelf);
     ship.position.set(player.position.x, player.position.y);
     ship.rotation = player.rotation;
     worldLayer.addChild(ship);
 
+    // Hull bar is drawn as simple Pixi geometry to keep the world layer self-contained.
     const hullRatio = Math.max(0, Math.min(1, player.hull / Math.max(1, player.maxHull)));
     const hullBack = new Graphics();
     hullBack.rect(player.position.x - 16, player.position.y + 20, 32, 4).fill(0x071018);
@@ -196,17 +222,20 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     worldLayer.addChild(label);
   }
 
+  // Fog overlay is last so hidden/remembered tiles sit visually above terrain and entities.
   const fogOverlay = createVisibilityOverlay(snapshot);
   if (fogOverlay) {
     worldLayer.addChild(fogOverlay);
   }
 
+  // Store the terrain state after rendering so the next snapshot can detect removed cells.
   previousTerrainSnapshot = {
     mapId: snapshot.mapId,
     cells: terrainCells
   };
 }
 
+// Builds a keyed map of currently non-empty terrain cells for destruction-effect diffing.
 function buildTerrainCellMap(snapshot: SnapshotMessage): Map<string, TerrainCellRecord> {
   const cells = new Map<string, TerrainCellRecord>();
   for (const chunk of snapshot.chunks) {
@@ -226,6 +255,7 @@ function buildTerrainCellMap(snapshot: SnapshotMessage): Map<string, TerrainCell
   return cells;
 }
 
+// Compares the last terrain cell map to the next one and spawns bursts where cells disappeared.
 function spawnTerrainBursts(mapId: string, nextCells: Map<string, TerrainCellRecord>, now: number): void {
   if (!previousTerrainSnapshot || previousTerrainSnapshot.mapId !== mapId) {
     return;
@@ -246,12 +276,14 @@ function spawnTerrainBursts(mapId: string, nextCells: Map<string, TerrainCellRec
   }
 }
 
+// Removes expired terrain bursts and caps retained effects for performance/readability.
 function pruneTerrainBursts(now: number): void {
   const nextBursts = terrainBursts.filter((burst) => now - burst.createdAt <= terrainBurstLifetimeMs);
   terrainBursts.length = 0;
   terrainBursts.push(...nextBursts.slice(-maxTerrainBursts));
 }
 
+// Chooses burst tint by terrain material value.
 function terrainBurstTint(cellValue: number): number {
   if (cellValue === 2) {
     return 0x9ad7ff;
@@ -262,7 +294,9 @@ function terrainBurstTint(cellValue: number): number {
   return 0xb9a48a;
 }
 
+// Creates the Pixi container for one terrain destruction burst.
 function createTerrainBurstEffect(burst: TerrainBurst, now: number): Container {
+  // age/fade normalize effect animation over its lifetime.
   const age = Math.min(1, (now - burst.createdAt) / terrainBurstLifetimeMs);
   const fade = 1 - age;
   const container = new Container();
@@ -277,6 +311,7 @@ function createTerrainBurstEffect(burst: TerrainBurst, now: number): Container {
   dust.alpha = 0.12 * fade;
   container.addChild(dust);
 
+  // Shards fan outward from the destroyed terrain cell using deterministic pseudo-random angles.
   for (let index = 0; index < 6; index += 1) {
     const shardSeed = burst.seed + index * 83;
     const angle = ((shardSeed % 360) * Math.PI) / 180;
@@ -292,7 +327,9 @@ function createTerrainBurstEffect(burst: TerrainBurst, now: number): Container {
   return container;
 }
 
+// Creates the Pixi projectile glow/trail effect from current and previous projectile positions.
 function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Container {
+  // Previous position gives a real travel angle; fallback angle keeps stationary new projectiles visible.
   const previous = projectileHistory.get(projectile.id);
   const deltaX = projectile.position.x - (previous?.x ?? projectile.position.x);
   const deltaY = projectile.position.y - (previous?.y ?? projectile.position.y);
@@ -302,6 +339,7 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   const pulse = 0.5 + 0.5 * Math.sin(now / 80 + hashString(projectile.id) * 0.03);
   const trailLength = Math.max(10, Math.min(30, travelDistance * 2.4 + 10));
 
+  // The projectile is drawn in local space and rotated to align with travel direction.
   const container = new Container();
   container.position.set(projectile.position.x, projectile.position.y);
   container.rotation = angle;
@@ -329,6 +367,7 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   return container;
 }
 
+// Deletes stale projectile history entries once projectiles leave the snapshot or age out.
 function pruneProjectileHistory(projectiles: ProjectileSnapshot[], now: number): void {
   const activeIds = new Set(projectiles.map((projectile) => projectile.id));
   for (const [projectileId, entry] of projectileHistory.entries()) {
@@ -338,6 +377,7 @@ function pruneProjectileHistory(projectiles: ProjectileSnapshot[], now: number):
   }
 }
 
+// Produces a deterministic unsigned hash for effect variation.
 function hashString(value: string): number {
   let hash = 0;
   for (const char of value) {
@@ -346,12 +386,14 @@ function hashString(value: string): number {
   return hash;
 }
 
+// Creates fog-of-war overlay geometry for hidden and remembered terrain cells.
 function createVisibilityOverlay(snapshot: SnapshotMessage): Container | null {
   const hiddenFog = new Graphics();
   const memoryFog = new Graphics();
   let hasHiddenTiles = false;
   let hasRememberedTiles = false;
 
+  // Build separate graphics so remembered and hidden fog can use different alpha values.
   for (const chunk of snapshot.chunks) {
     chunk.visibility.forEach((cellVisibility, index) => {
       if (cellVisibility === 2) {
@@ -389,6 +431,7 @@ function createVisibilityOverlay(snapshot: SnapshotMessage): Container | null {
   return container;
 }
 
+// Produces the current objective sentence from progression and visible foundry state.
 function describeObjective(snapshot: SnapshotMessage): string {
   const activeFoundry = snapshot.foundries.find((foundry) => foundry.active);
   if (!snapshot.deeperPathUnlocked) {
@@ -405,6 +448,7 @@ function describeObjective(snapshot: SnapshotMessage): string {
   return "Hold the deeper cavern, gather salvage, and keep the fleet supplied.";
 }
 
+// Produces foundry health/defender status copy for the HUD.
 function describeFoundryStatus(snapshot: SnapshotMessage): string {
   const activeFoundry = snapshot.foundries.find((foundry) => foundry.active);
   if (activeFoundry) {

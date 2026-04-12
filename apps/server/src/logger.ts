@@ -1,6 +1,7 @@
 export type LogLevel = "normal" | "verbose" | "very-verbose";
 
 export interface LogMeta {
+  // Arbitrary structured details that are serialized next to the log message.
   [key: string]: unknown;
 }
 
@@ -14,19 +15,23 @@ export interface Logger {
 
 type InternalLevel = "INFO" | "WARN" | "ERROR" | "VERBOSE" | "VERY_VERBOSE";
 
+// Numeric ordering lets verbose checks compare levels without branching on every named value.
 const levelOrder: Record<LogLevel, number> = {
   normal: 0,
   verbose: 1,
   "very-verbose": 2
 };
 
+// Global runtime verbosity shared by all scoped loggers.
 let currentLogLevel: LogLevel = "normal";
 
+// Converts environment/config text into the small set of supported log levels.
 export function parseLogLevel(value: string | undefined): LogLevel {
   if (!value) {
     return "normal";
   }
 
+  // Normalize a few common spellings so operators do not have to remember the exact dash format.
   const normalized = value.trim().toLowerCase();
   if (normalized === "verbose") {
     return "verbose";
@@ -43,10 +48,12 @@ export function parseLogLevel(value: string | undefined): LogLevel {
   return "normal";
 }
 
+// Updates the process-wide verbosity used by every logger created in this module.
 export function setGlobalLogLevel(level: LogLevel): void {
   currentLogLevel = level;
 }
 
+// Decides whether a message should be emitted at the currently configured verbosity.
 function shouldWrite(level: InternalLevel): boolean {
   if (level === "VERBOSE") {
     return levelOrder[currentLogLevel] >= levelOrder.verbose;
@@ -57,6 +64,7 @@ function shouldWrite(level: InternalLevel): boolean {
   return true;
 }
 
+// Formats a single structured log line and sends it to the matching console stream.
 function writeLog(level: InternalLevel, scope: string, message: string, meta?: LogMeta): void {
   if (!shouldWrite(level)) {
     return;
@@ -79,6 +87,7 @@ function writeLog(level: InternalLevel, scope: string, message: string, meta?: L
   console.log(line);
 }
 
+// Creates a lightweight scoped logger so subsystem logs stay easy to filter by source.
 export function createLogger(scope: string): Logger {
   return {
     info(message, meta) {
