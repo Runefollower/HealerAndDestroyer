@@ -4,6 +4,8 @@ import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
 import { createEnemyDisplay, createFoundryDisplay, createSalvageDisplay, createStructureDisplay } from "./worldEntityAssets.js";
 
+// Viewport padding keeps nearby off-screen objects ready as the camera moves between snapshots.
+const viewportPadding = 160;
 // Terrain tile size matches the server's terrain cell size in world-space pixels.
 const terrainTileSize = 32;
 // Terrain sprites are intentionally larger than a tile to overlap and soften grid edges.
@@ -18,6 +20,15 @@ const maxTerrainBursts = 24;
 // previousTerrainSnapshot tracks visible terrain cells from the prior render for destruction effects.
 let previousTerrainSnapshot: { mapId: string; cells: Map<string, TerrainCellRecord> } | null = null;
 const terrainBursts: TerrainBurst[] = [];
+
+export interface WorldViewport {
+  // x/y are the top-left world coordinates currently visible through the camera.
+  x: number;
+  y: number;
+  // width/height are the current screen dimensions in pixels.
+  width: number;
+  height: number;
+}
 
 interface TerrainCellRecord {
   // value is the terrain material value from the snapshot cell.
@@ -94,15 +105,16 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
   `;
 }
 
-// Redraws the full Pixi world layer from one server snapshot.
-export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage): void {
+// Redraws the visible Pixi world layer from one server snapshot.
+export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage, viewport: WorldViewport): void {
   // Transient visual state is updated before clearing the layer for a fresh snapshot render.
   const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const paddedViewport = padViewport(viewport, viewportPadding);
   pruneProjectileHistory(snapshot.projectiles, now);
-  const terrainCells = buildTerrainCellMap(snapshot);
+  const terrainCells = buildTerrainCellMap(snapshot, paddedViewport);
   spawnTerrainBursts(snapshot.mapId, terrainCells, now);
   pruneTerrainBursts(now);
-  worldLayer.removeChildren();
+  clearWorldLayer(worldLayer);
 
   // Draw visible and remembered terrain cells before entities.
   for (const chunk of snapshot.chunks) {
@@ -115,6 +127,9 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       const localY = Math.floor(index / 8);
       const x = (chunk.chunkX * 8 + localX) * terrainTileSize;
       const y = (chunk.chunkY * 8 + localY) * terrainTileSize;
+      if (!isRectInViewport(x - terrainSpriteInset, y - terrainSpriteInset, terrainSpriteSize, terrainSpriteSize, paddedViewport)) {
+        return;
+      }
       const variant = selectTerrainVariant({
         mapId: snapshot.mapId,
         chunkX: chunk.chunkX,
@@ -144,18 +159,27 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
 
   // Add terrain destruction bursts after terrain so the effects sit above the cells.
   for (const burst of terrainBursts) {
+    if (!isPointInViewport(burst.x, burst.y, paddedViewport)) {
+      continue;
+    }
     const burstDisplay = createTerrainBurstEffect(burst, now);
     worldLayer.addChild(burstDisplay);
   }
 
   // Structures and foundries render before mobile entities so ships/enemies remain readable.
   for (const structure of snapshot.structures) {
+    if (!isPointInViewport(structure.position.x, structure.position.y, paddedViewport)) {
+      continue;
+    }
     const sprite = createStructureDisplay(structure.structureTypeId);
     sprite.position.set(structure.position.x, structure.position.y);
     worldLayer.addChild(sprite);
   }
 
   for (const foundry of snapshot.foundries) {
+    if (!isPointInViewport(foundry.position.x, foundry.position.y, paddedViewport)) {
+      continue;
+    }
     const sprite = createFoundryDisplay(foundry.active);
     sprite.position.set(foundry.position.x, foundry.position.y);
     worldLayer.addChild(sprite);
@@ -171,12 +195,18 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
 
   // Drops, enemies, projectiles, and players are all already visibility-filtered by the server.
   for (const drop of snapshot.drops) {
+    if (!isPointInViewport(drop.position.x, drop.position.y, paddedViewport)) {
+      continue;
+    }
     const sprite = createSalvageDisplay(drop.resources);
     sprite.position.set(drop.position.x, drop.position.y);
     worldLayer.addChild(sprite);
   }
 
   for (const enemy of snapshot.enemies) {
+    if (!isPointInViewport(enemy.position.x, enemy.position.y, paddedViewport)) {
+      continue;
+    }
     const sprite = createEnemyDisplay(enemy.enemyTypeId);
     sprite.position.set(enemy.position.x, enemy.position.y);
     sprite.rotation = enemy.rotation;
@@ -184,6 +214,9 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   }
 
   for (const projectile of snapshot.projectiles) {
+    if (!isPointInViewport(projectile.position.x, projectile.position.y, paddedViewport)) {
+      continue;
+    }
     // Update projectile history after drawing so the next frame can infer trail direction.
     const fx = createProjectileEffect(projectile, now);
     worldLayer.addChild(fx);
@@ -195,6 +228,9 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   }
 
   for (const player of snapshot.players) {
+    if (!isPointInViewport(player.position.x, player.position.y, paddedViewport)) {
+      continue;
+    }
     // Self ships use stronger accenting than allied ships.
     const isSelf = player.playerId === snapshot.selfPlayerId;
     const ship = createPlayerShipDisplay(player.hullId, player.modules, player.shipId, isSelf);
@@ -223,7 +259,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   }
 
   // Fog overlay is last so hidden/remembered tiles sit visually above terrain and entities.
-  const fogOverlay = createVisibilityOverlay(snapshot);
+  const fogOverlay = createVisibilityOverlay(snapshot, paddedViewport);
   if (fogOverlay) {
     worldLayer.addChild(fogOverlay);
   }
@@ -235,8 +271,36 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   };
 }
 
+// Expands the viewport by a fixed padding so culling does not pop at the screen edge.
+function padViewport(viewport: WorldViewport, padding: number): WorldViewport {
+  return {
+    x: viewport.x - padding,
+    y: viewport.y - padding,
+    width: viewport.width + padding * 2,
+    height: viewport.height + padding * 2
+  };
+}
+
+// Checks whether a world-space point falls within the current padded viewport.
+function isPointInViewport(x: number, y: number, viewport: WorldViewport): boolean {
+  return x >= viewport.x && y >= viewport.y && x <= viewport.x + viewport.width && y <= viewport.y + viewport.height;
+}
+
+// Checks whether a world-space rectangle intersects the current padded viewport.
+function isRectInViewport(x: number, y: number, width: number, height: number, viewport: WorldViewport): boolean {
+  return x + width >= viewport.x && y + height >= viewport.y && x <= viewport.x + viewport.width && y <= viewport.y + viewport.height;
+}
+
+// Clears the old snapshot display objects so Text/Graphics GPU resources do not accumulate over time.
+function clearWorldLayer(worldLayer: PixiContainer): void {
+  const removedChildren = worldLayer.removeChildren();
+  for (const child of removedChildren) {
+    child.destroy({ children: true, texture: false, textureSource: false });
+  }
+}
+
 // Builds a keyed map of currently non-empty terrain cells for destruction-effect diffing.
-function buildTerrainCellMap(snapshot: SnapshotMessage): Map<string, TerrainCellRecord> {
+function buildTerrainCellMap(snapshot: SnapshotMessage, viewport: WorldViewport): Map<string, TerrainCellRecord> {
   const cells = new Map<string, TerrainCellRecord>();
   for (const chunk of snapshot.chunks) {
     chunk.cells.forEach((cell, index) => {
@@ -245,10 +309,15 @@ function buildTerrainCellMap(snapshot: SnapshotMessage): Map<string, TerrainCell
       }
       const localX = index % 8;
       const localY = Math.floor(index / 8);
+      const x = (chunk.chunkX * 8 + localX) * terrainTileSize + terrainTileSize / 2;
+      const y = (chunk.chunkY * 8 + localY) * terrainTileSize + terrainTileSize / 2;
+      if (!isPointInViewport(x, y, viewport)) {
+        return;
+      }
       cells.set(`${chunk.chunkX}:${chunk.chunkY}:${index}`, {
         value: cell,
-        x: (chunk.chunkX * 8 + localX) * terrainTileSize + terrainTileSize / 2,
-        y: (chunk.chunkY * 8 + localY) * terrainTileSize + terrainTileSize / 2
+        x,
+        y
       });
     });
   }
@@ -386,17 +455,15 @@ function hashString(value: string): number {
   return hash;
 }
 
-// Creates fog-of-war overlay geometry for hidden and remembered terrain cells.
-function createVisibilityOverlay(snapshot: SnapshotMessage): Container | null {
-  const hiddenFog = new Graphics();
+// Creates fog-of-war overlay geometry for remembered terrain cells.
+function createVisibilityOverlay(snapshot: SnapshotMessage, viewport: WorldViewport): Container | null {
   const memoryFog = new Graphics();
-  let hasHiddenTiles = false;
   let hasRememberedTiles = false;
 
-  // Build separate graphics so remembered and hidden fog can use different alpha values.
+  // Hidden/unexplored tiles are not drawn; the dark game background already represents unknown space.
   for (const chunk of snapshot.chunks) {
     chunk.visibility.forEach((cellVisibility, index) => {
-      if (cellVisibility === 2) {
+      if (cellVisibility !== 1) {
         return;
       }
 
@@ -404,30 +471,21 @@ function createVisibilityOverlay(snapshot: SnapshotMessage): Container | null {
       const localY = Math.floor(index / 8);
       const x = (chunk.chunkX * 8 + localX) * terrainTileSize;
       const y = (chunk.chunkY * 8 + localY) * terrainTileSize;
-      if (cellVisibility === 1) {
-        memoryFog.rect(x, y, terrainTileSize, terrainTileSize).fill(0x0b1218);
-        hasRememberedTiles = true;
+      if (!isRectInViewport(x, y, terrainTileSize, terrainTileSize, viewport)) {
         return;
       }
-
-      hiddenFog.rect(x, y, terrainTileSize, terrainTileSize).fill(0x02060b);
-      hasHiddenTiles = true;
+      memoryFog.rect(x, y, terrainTileSize, terrainTileSize).fill(0x0b1218);
+      hasRememberedTiles = true;
     });
   }
 
-  if (!hasHiddenTiles && !hasRememberedTiles) {
+  if (!hasRememberedTiles) {
     return null;
   }
 
   const container = new Container();
-  if (hasRememberedTiles) {
-    memoryFog.alpha = 0.42;
-    container.addChild(memoryFog);
-  }
-  if (hasHiddenTiles) {
-    hiddenFog.alpha = 0.9;
-    container.addChild(hiddenFog);
-  }
+  memoryFog.alpha = 0.42;
+  container.addChild(memoryFog);
   return container;
 }
 

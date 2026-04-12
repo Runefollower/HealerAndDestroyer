@@ -91,15 +91,27 @@ The following major milestones are already implemented in the current prototype 
 - the acceptance scenario covers collision, mining, salvage creation, terrain memory, LOS cover, enemy idle behavior behind cover, foundry destruction, deeper-path unlock, map transition placement, and reconnect persistence
 - the test suite now confirms the prototype's individual spatial systems work together as a coherent playable slice rather than only as isolated mechanics
 
+16. First procedural cave generation pass
+- server world creation now builds the root and deeper maps from deterministic seed-driven cave layouts instead of the tiny hand-authored terrain templates
+- the root map is now much larger than the initial prototype layout, with generated rooms, corridors, mineable wall pockets, and required gameplay anchors
+- generated placement now provides deterministic spawn, builder site, foundry, enemy, and map-connection anchor positions while preserving stable map ids and persistence contracts
+- tests cover deterministic output, seed variation, connected required anchors, and mineable solid terrain near generated open space
+
+17. Generated-map client performance hardening
+- the first larger generated maps exposed client-side render pressure that did not show up on the tiny hand-authored map
+- the renderer now destroys old snapshot display objects instead of only removing them from the Pixi world layer
+- hidden fog no longer draws a rectangle for every unseen tile; the dark background represents unexplored space while remembered fog still renders where needed
+- snapshot rendering now receives the camera viewport and culls off-screen terrain, entities, fog, and transient effects with padding
+
 ## Summary
 
-The next phase should shift from hand-authored prototype maps toward procedural map generation. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, and spatial-slice acceptance coverage working well enough that the next major unlock is generating more interesting playable spaces from seeds.
+The next phase should harden and tune procedural map generation now that the first seed-driven cave layout is in place. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, and first-pass client viewport culling working well enough that the next major unlock is making generated spaces more robust and more interesting.
 
 The priority for the next phase is:
 
-1. procedural generation of cave maps from deterministic seeds
-2. placement rules for spawn points, builder sites, foundries, route connections, terrain density, and resource-bearing rock
-3. acceptance coverage that proves generated maps are traversable, objective-bearing, and compatible with collision, visibility, mining, and persistence
+1. procedural generation hardening for route connectivity, spawn safety, objective placement, and resource distribution
+2. richer cave layout tuning so generated spaces create readable corridors, chambers, cover, and mining opportunities
+3. client performance hardening only where playtesting still shows spikes, with chunk/display caching as the next rendering optimization if viewport culling is not enough
 
 ## Key Changes
 
@@ -229,10 +241,10 @@ Important implementation notes:
 
 ### 5. Procedural map generation
 
-Status: next phase.
+Status: first pass complete; hardening and tuning next.
 
-- replace the current mostly hand-shaped starter/deeper terrain templates with deterministic seed-driven map generation
-- generate cave-like terrain that provides readable corridors, chambers, cover, mining opportunities, and objective spaces
+- the current implementation replaces the tiny hand-shaped starter/deeper terrain templates with deterministic seed-driven cave generation
+- generated cave terrain now provides larger rooms, corridors, mineable wall pockets, and required objective spaces
 - generate or validate safe placement for:
   - player spawn points
   - builder sites
@@ -245,12 +257,39 @@ Status: next phase.
 
 First implementation target:
 
-- add a small deterministic generation module under the server simulation layer
-- start with a seeded cave generator that carves rooms/corridors into chunk cell arrays
-- guarantee a connected walkable path from player spawn to builder site, foundry objective, and route connection
-- place terrain/resource cells with tunable density while leaving enough open navigation space for ship collision radii
-- generate the root map and deeper map from their existing map seeds while keeping the current ids stable
-- add tests for deterministic output, required placement validity, route connectivity, and persistence reload over generated baseline maps
+- add a small deterministic generation module under the server simulation layer: complete
+- start with a seeded cave generator that carves rooms/corridors into chunk cell arrays: complete
+- guarantee a connected walkable path from player spawn to builder site, foundry objective, and route connection: complete for the first pass
+- place terrain/resource cells with tunable density while leaving enough open navigation space for ship collision radii: first pass complete
+- generate the root map and deeper map from their existing map seeds while keeping the current ids stable: complete
+- add tests for deterministic output, required placement validity, route connectivity, and persistence reload over generated baseline maps: generation tests complete; persistence-over-generated-baseline should continue through world tests and future acceptance cases
+
+Next implementation target:
+
+- add generator validation helpers that can fail fast when a generated map lacks required connectivity or safe placement
+- tune generated layout shape so spawned foundry pressure, cover, and mining pockets are less uniform
+- consider multiple map archetypes, such as starter-safe caves, foundry arenas, and deeper resource caverns
+- expose generation parameters per biome/map summary instead of hard-coding root/deeper chunk sizes in world creation
+- add persistence-specific tests that mutate generated terrain/foundries, reload over the same generated baseline, and verify the deltas still apply cleanly
+
+### 6. Larger-map client rendering performance
+
+Status: first hardening pass complete; monitor during playtesting.
+
+- the first generated-map playtest exposed two client renderer issues:
+  - old Pixi display objects were removed from the world layer without being destroyed
+  - the fog overlay generated too much geometry for unseen tiles on larger maps
+- the renderer now destroys removed snapshot children while preserving shared textures
+- hidden/unexplored space now relies on the game background instead of per-tile fog rectangles
+- remembered fog, terrain, entities, projectile effects, and terrain bursts are culled to the padded camera viewport
+- snapshot handling now updates the camera before rendering so culling uses the correct world-space viewport
+
+Next implementation target, only if playtesting still shows periodic drops:
+
+- cache static terrain chunks as display containers instead of rebuilding terrain sprites every snapshot
+- invalidate cached chunks only when terrain cells or visibility memory for that chunk changes
+- keep dynamic entities, projectiles, labels, and transient effects on lightweight separate layers
+- consider reducing server snapshot rate or decoupling static terrain redraw frequency from dynamic entity updates if spikes persist
 
 ## Test Plan
 

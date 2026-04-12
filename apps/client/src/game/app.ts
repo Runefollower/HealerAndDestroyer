@@ -131,7 +131,7 @@ export async function bootstrapClient(): Promise<void> {
 
   network.onServerMessage((message) => {
     // Some server messages refine the local server-time offset used by builder timers.
-    const nextOffset = handleServerMessage(network, builder, hud, notifications, worldLayer, store, message, clockOffsetMs);
+    const nextOffset = handleServerMessage(network, builder, hud, notifications, worldLayer, store, message, clockOffsetMs, app.screen.width, app.screen.height);
     if (typeof nextOffset === "number") {
       clockOffsetMs = nextOffset;
     }
@@ -247,7 +247,9 @@ function handleServerMessage(
   worldLayer: Container,
   store: ClientStore,
   message: ServerMessage,
-  clockOffsetMs: number
+  clockOffsetMs: number,
+  screenWidth: number,
+  screenHeight: number
 ): number | undefined {
   if (message.type === "builderState") {
     // builderState is authoritative and also provides a server timestamp for countdown correction.
@@ -301,7 +303,13 @@ function handleServerMessage(
     store.latestSnapshot = message;
     reconcileSelectedModules(store, message.selfModules);
     renderHudForStore(hud, store);
-    renderWorld(worldLayer, message);
+    updateCamera(worldLayer, message, screenWidth, screenHeight);
+    renderWorld(worldLayer, message, {
+      x: -worldLayer.position.x,
+      y: -worldLayer.position.y,
+      width: screenWidth,
+      height: screenHeight
+    });
     if (!message.builderSiteNearby) {
       // Moving away from the builder closes the local panel and clears its stale state.
       store.builderOpen = false;

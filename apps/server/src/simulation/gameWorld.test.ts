@@ -94,6 +94,8 @@ describe("GameWorld", () => {
     const player = rootMap.players["player-1"];
     player.position = { x: 84, y: 16 };
     player.rotation = Math.PI;
+    rootMap.chunks["0,0"].cells = Array(64).fill(0);
+    rootMap.chunks["0,0"].cells[0] = 1;
 
     const startingCell = rootMap.chunks["0,0"].cells[0];
     expect(startingCell).toBeGreaterThan(0);
@@ -343,12 +345,16 @@ describe("GameWorld", () => {
 
     const rootMap = world.runtime.maps["map-root"];
     const runtimePlayer = rootMap.players["player-1"];
+    const builder = Object.values(rootMap.structures).find((structure) => structure.structureTypeId === "builder-site");
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
     runtimePlayer.inventory = { ferrite: 0, "plasma-crystal": 0 };
-    runtimePlayer.position = { x: 96, y: 96 };
+    runtimePlayer.position = { ...builder.position };
     rootMap.drops["test-drop"] = {
       id: "test-drop" as never,
       mapId: rootMap.id,
-      position: { x: 96, y: 96 },
+      position: { ...builder.position },
       resources: { ferrite: 80, "plasma-crystal": 20 }
     };
 
@@ -389,8 +395,12 @@ describe("GameWorld", () => {
     await world.persistence.players.savePlayer(save);
 
     const rootMap = world.runtime.maps["map-root"];
+    const builder = Object.values(rootMap.structures).find((structure) => structure.structureTypeId === "builder-site");
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
     rootMap.players["player-1"].inventory = { ferrite: 200, "plasma-crystal": 50 };
-    rootMap.players["player-1"].position = { x: 96, y: 96 };
+    rootMap.players["player-1"].position = { ...builder.position };
 
     const buildResponse = await world.handleMessage("player-1", {
       type: "builderAction",
