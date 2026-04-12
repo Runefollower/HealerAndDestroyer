@@ -86,15 +86,20 @@ The following major milestones are already implemented in the current prototype 
 - only terrain blocks first-pass visibility; large structures and foundries remain visible objects rather than acting as opaque occluders
 - tests now cover blocked LOS, remembered terrain persistence, reconnect behavior, and nearby structure visibility
 
+15. Spatial slice acceptance hardening
+- server-side acceptance coverage now exercises the full root-to-depth spatial loop in one flow
+- the acceptance scenario covers collision, mining, salvage creation, terrain memory, LOS cover, enemy idle behavior behind cover, foundry destruction, deeper-path unlock, map transition placement, and reconnect persistence
+- the test suite now confirms the prototype's individual spatial systems work together as a coherent playable slice rather than only as isolated mechanics
+
 ## Summary
 
-The next phase should continue shifting from proving core loop structure to making the game readable, navigable, and spatially coherent. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, and first-pass visibility working well enough that the biggest remaining gaps are acceptance hardening, follow-up readability polish, and combat interactions that better exploit terrain and cover.
+The next phase should shift from hand-authored prototype maps toward procedural map generation. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, and spatial-slice acceptance coverage working well enough that the next major unlock is generating more interesting playable spaces from seeds.
 
 The priority for the next phase is:
 
-1. persistence and acceptance hardening around visibility, reconnect, and broader spatial flows
-2. follow-up terrain and combat readability polish only where playtesting still shows issues
-3. next-step combat interactions that build on the new terrain destruction and line-of-sight rules
+1. procedural generation of cave maps from deterministic seeds
+2. placement rules for spawn points, builder sites, foundries, route connections, terrain density, and resource-bearing rock
+3. acceptance coverage that proves generated maps are traversable, objective-bearing, and compatible with collision, visibility, mining, and persistence
 
 ## Key Changes
 
@@ -135,11 +140,11 @@ Important implementation notes:
   - structures/foundries as circles
   - ships and enemies as simple radii
 - movement resolution currently favors stable blocked-axis behavior over full physical sliding
-- the collision helper now provides a reuse point for the next projectile-vs-terrain and impact pass
+- the collision helper should remain the validation path for future procedural spawn, structure, and connection placement
 
 ### 2.5 Weapon presentation and firing readability
 
-Status: first pass complete, follow-up still needed.
+Status: first pass complete.
 
 - primary weapon fire now originates from the mounted forward weapon hardpoint rather than the ship center
 - the current pulse cannon now fires straight along ship facing instead of steering toward the mouse cursor
@@ -148,7 +153,7 @@ Status: first pass complete, follow-up still needed.
 
 Important implementation notes:
 
-- this pass improves readability and mount logic only; projectile-vs-terrain collision and impact flashes still belong to the next follow-up
+- this pass improves readability and mount logic; projectile-vs-terrain collision and terrain impact feedback are now covered by the later projectile terrain destruction pass
 - future multi-weapon hulls should keep using hardpoint-local origin and orientation as the firing source of truth
 
 ### 2.75 Player-centered camera follow
@@ -208,10 +213,44 @@ Important implementation notes:
 
 ### 4. Persistence and acceptance hardening for spatial systems
 
+Status: first acceptance pass complete.
+
 - validate that terrain variants remain stable across reconnects and reloads
 - validate that collision prevents illegal positions after reconnect and map transitions
 - validate that explored-memory state behaves consistently when leaving and re-entering an area
 - expand acceptance coverage so the world feels spatially believable, not just mechanically connected
+- keep adding focused acceptance cases when new spatial systems change map topology or placement rules
+
+Important implementation notes:
+
+- the current acceptance test deliberately uses the server `GameWorld` API rather than the WebSocket layer, keeping the flow deterministic and fast
+- the flow now covers mining, LOS cover, foundry unlock, deeper-map transition, and reconnect persistence together
+- future acceptance work should validate generated maps at the map-generator boundary and at the gameplay-flow boundary
+
+### 5. Procedural map generation
+
+Status: next phase.
+
+- replace the current mostly hand-shaped starter/deeper terrain templates with deterministic seed-driven map generation
+- generate cave-like terrain that provides readable corridors, chambers, cover, mining opportunities, and objective spaces
+- generate or validate safe placement for:
+  - player spawn points
+  - builder sites
+  - foundries and enemy pressure zones
+  - map connection anchors
+  - resource-rich terrain pockets
+  - enemy starter positions
+- preserve current persistence behavior by treating generated maps as the baseline state and persisted chunk/structure/foundry records as deltas over that baseline
+- keep generated map output compatible with the existing tile grid, collision helper, visibility service, terrain art variant selection, and snapshot shape
+
+First implementation target:
+
+- add a small deterministic generation module under the server simulation layer
+- start with a seeded cave generator that carves rooms/corridors into chunk cell arrays
+- guarantee a connected walkable path from player spawn to builder site, foundry objective, and route connection
+- place terrain/resource cells with tunable density while leaving enough open navigation space for ship collision radii
+- generate the root map and deeper map from their existing map seeds while keeping the current ids stable
+- add tests for deterministic output, required placement validity, route connectivity, and persistence reload over generated baseline maps
 
 ## Test Plan
 
@@ -236,6 +275,13 @@ Add or update automated scenarios for:
   - destroy the root foundry
   - unlock and enter the deeper route
   - reconnect without losing stable terrain presentation
+- procedural map generation:
+  - same seed produces the same terrain, structures, foundries, and connection anchors
+  - different seeds produce meaningfully different layouts
+  - generated player spawn, builder site, foundry, enemy spawns, and route anchors are non-colliding
+  - generated root maps include a connected traversable path from spawn to builder, foundry, and deeper-route anchor
+  - generated maps include enough solid terrain for mining and LOS cover without blocking required progression
+  - persisted terrain edits, foundry destruction, and player spawn/map state restore correctly over a generated baseline
 
 Optional terrain-art follow-up checks, only if later phases reveal a need:
 
@@ -250,4 +296,5 @@ Optional terrain-art follow-up checks, only if later phases reveal a need:
 - terrain art starts with the current rock terrain before expanding to multiple biomes
 - collision is implemented as gameplay-first deterministic constraints, not full rigid-body physics
 - fog-of-war style memory can begin with the main playfield before any dedicated minimap/exploration UI is expanded
-
+- procedural generation should be deterministic and seed-driven before it becomes highly varied or content-rich
+- generated maps can start small and conservative; reliability, connectedness, and valid placement matter more than visual novelty in the first pass

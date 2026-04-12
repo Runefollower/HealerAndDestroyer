@@ -493,6 +493,127 @@ describe("GameWorld", () => {
     ).toBe(false);
   });
 
+  it("plays the spatial slice through mining, cover, foundry unlock, map transition, and reconnect", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    const enemy = rootMap.enemies["enemy-root-1"];
+    const foundry = Object.values(rootMap.foundries)[0];
+    if (!enemy || !foundry) {
+      throw new Error("Expected starter enemy and foundry.");
+    }
+
+    // Shape the root map into an open, deterministic acceptance space with one solid cover tile.
+    for (const chunk of Object.values(rootMap.chunks)) {
+      chunk.cells = Array(chunk.cells.length).fill(0);
+    }
+    player.position = { x: 48, y: 48 };
+    player.velocity = { x: -720, y: 0 };
+    rootMap.chunks["0,0"].cells[8] = 1;
+
+    await world.tick();
+
+    expect(player.position.x).toBe(48);
+    expect(player.velocity.x).toBe(0);
+
+    // Mine the blocking tile, confirm it becomes salvage, and update terrain memory from a snapshot.
+    await world.handleMessage("player-1", {
+      type: "activateModule",
+      moduleId: "mining-laser",
+      targetWorld: { x: 16, y: 48 },
+      tick: 1
+    });
+
+    expect(rootMap.chunks["0,0"].cells[8]).toBe(0);
+    expect(Object.values(rootMap.drops)).toContainEqual(
+      expect.objectContaining({
+        resources: expect.objectContaining({ ferrite: expect.any(Number) })
+      })
+    );
+
+    let snapshot = world.getSnapshot("player-1");
+    let rootChunk = snapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+    expect(rootChunk?.cells[8]).toBe(0);
+    expect(rootChunk?.visibility[8]).toBe(2);
+
+    // Put an enemy behind a new wall tile and verify line-of-sight hides it and keeps it idle.
+    enemy.position = { x: 112, y: 48 };
+    enemy.velocity = { x: 0, y: 0 };
+    rootMap.chunks["0,0"].cells[10] = 1;
+
+    snapshot = world.getSnapshot("player-1");
+    rootChunk = snapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+    expect(snapshot.enemies.find((entry) => entry.id === enemy.id)).toBeUndefined();
+    expect(rootChunk?.visibility[10]).toBe(2);
+    expect(rootChunk?.visibility[11]).toBe(1);
+
+    await world.tick();
+
+    expect(enemy.aiState).toBe("idle");
+    expect(enemy.velocity).toEqual({ x: 0, y: 0 });
+
+    // Clear cover, destroy the foundry with forward weapon fire, and confirm the route unlocks.
+    rootMap.chunks["0,0"].cells[10] = 0;
+    foundry.health = 20;
+    player.position = { x: foundry.position.x - 80, y: foundry.position.y };
+    player.velocity = { x: 0, y: 0 };
+    player.rotation = 0;
+
+    await world.handleMessage("player-1", {
+      type: "fireWeapon",
+      weaponHardpointId: "weapon-front",
+      tick: 2
+    });
+    for (let index = 0; index < 12; index += 1) {
+      await world.tick();
+    }
+
+    expect(foundry.buildState).toBe("destroyed");
+    expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(true);
+    expect(world.drainPendingMessages("player-1")).toContainEqual(
+      expect.objectContaining({
+        type: "actionFeedback",
+        code: "deeper_path_unlocked"
+      })
+    );
+
+    // Transition into the deeper map and verify the destination resolves to a legal position.
+    await world.handleMessage("player-1", {
+      type: "changeMap",
+      connectionId: "conn-root-depth-1"
+    });
+
+    const depthMap = world.runtime.maps["map-depth-1"];
+    const depthPlayer = depthMap.players["player-1"];
+    expect(depthPlayer.mapId).toBe("map-depth-1");
+    expect(
+      isPositionBlocked(depthMap, depthPlayer.position, getPlayerShipCollisionRadius(depthPlayer), {
+        excludeEntityId: depthPlayer.id,
+        includePlayers: true,
+        includeEnemies: true
+      })
+    ).toBe(false);
+
+    // Disconnect/reload/reconnect through the same persistence bundle and verify spatial state survived.
+    await world.disconnectPlayer("player-1");
+
+    const savedPlayer = await world.persistence.players.getPlayer(world.worldId, asPlayerId("player-1"));
+    expect(savedPlayer?.spawnPoint.mapId).toBe("map-depth-1");
+    expect(savedPlayer?.terrainMemoryByMap["map-root"]?.chunks["0,0"]?.explored[8]).toBe(true);
+
+    const reloadedWorld = new GameWorld(world.persistence);
+    await reloadedWorld.initialize();
+    await reloadedWorld.connectPlayer("player-1");
+
+    expect(reloadedWorld.runtime.maps["map-root"].chunks["0,0"].cells[8]).toBe(0);
+    expect(Object.values(reloadedWorld.runtime.maps["map-root"].foundries)[0]?.buildState).toBe("destroyed");
+    expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
+    expect(reloadedWorld.getSnapshot("player-1").deeperPathUnlocked).toBe(true);
+  });
+
   it("spawns foundry enemies, unlocks the deeper path after foundry destruction, and restores state after reconnect", async () => {
     const world = new GameWorld();
     await world.initialize();
@@ -561,8 +682,3 @@ describe("GameWorld", () => {
     expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
   });
 });
-
-
-
-
-
