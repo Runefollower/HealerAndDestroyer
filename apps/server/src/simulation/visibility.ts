@@ -27,7 +27,9 @@ const hiddenVisibility = 0 as TerrainVisibilityState;
 const rememberedVisibility = 1 as TerrainVisibilityState;
 const visibleVisibility = 2 as TerrainVisibilityState;
 // Player vision radius is measured in terrain tiles, not pixels.
-const playerVisionRadiusTiles = 7;
+const playerVisionRadiusTiles = 14;
+// Player vision can reveal this many consecutive solid terrain tiles before fully occluding.
+const playerOccludingTileDepth = 3;
 // Enemy vision radii are tuned per enemy type so AI awareness can differ by content id.
 const enemyVisionRadiusTilesByType: Record<string, number> = {
   "drone-scout": 6,
@@ -57,7 +59,7 @@ export function buildPlayerVisibilityView(
 ): PlayerVisibilityView {
   // Terrain memory is saved per player per map so explored cells remain known after reconnect.
   const memory = ensureTerrainMemoryMap(terrainMemoryByMap, map.id);
-  const visibleTiles = computeVisibleTiles(map, self.position, playerVisionRadiusTiles);
+  const visibleTiles = computeVisibleTiles(map, self.position, playerVisionRadiusTiles, playerOccludingTileDepth);
   let memoryChanged = false;
 
   // Every chunk is returned, but cells are hidden, remembered, or current based on visibility.
@@ -138,7 +140,7 @@ export function findNearestVisiblePlayer(map: ActiveMapState, enemy: EnemyState)
 }
 
 // Computes all tiles visible from an origin within a tile radius and line-of-sight constraints.
-export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y: number }, radiusTiles: number): Set<string> {
+export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y: number }, radiusTiles: number, occludingTileDepth = 1): Set<string> {
   const originTile = worldToTile(origin);
   const visibleTiles = new Set<string>();
   if (!originTile) {
@@ -155,7 +157,7 @@ export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y:
       if (Math.hypot(tileX - originTile.tileX, tileY - originTile.tileY) > radiusTiles) {
         continue;
       }
-      if (hasLineOfSightToTile(map, originTile.tileX, originTile.tileY, tileX, tileY)) {
+      if (hasLineOfSightToTile(map, originTile.tileX, originTile.tileY, tileX, tileY, occludingTileDepth)) {
         visibleTiles.add(createTileKey(tileX, tileY));
       }
     }
@@ -176,7 +178,14 @@ function isPositionVisible(position: { x: number; y: number }, visibleTiles: Set
 }
 
 // Uses Bresenham-style line walking to determine whether terrain blocks sight to a tile.
-function hasLineOfSightToTile(map: ActiveMapState, originTileX: number, originTileY: number, targetTileX: number, targetTileY: number): boolean {
+function hasLineOfSightToTile(
+  map: ActiveMapState,
+  originTileX: number,
+  originTileY: number,
+  targetTileX: number,
+  targetTileY: number,
+  occludingTileDepth: number
+): boolean {
   let currentX = originTileX;
   let currentY = originTileY;
   const deltaX = Math.abs(targetTileX - originTileX);
@@ -184,13 +193,22 @@ function hasLineOfSightToTile(map: ActiveMapState, originTileX: number, originTi
   const deltaY = -Math.abs(targetTileY - originTileY);
   const stepY = originTileY < targetTileY ? 1 : -1;
   let error = deltaX + deltaY;
+  let occludingTilesSeen = 0;
 
   // Step tile-by-tile until hitting a blocker or the target tile.
   while (true) {
     const isOrigin = currentX === originTileX && currentY === originTileY;
     const isTarget = currentX === targetTileX && currentY === targetTileY;
-    if (!isOrigin && isVisionBlockingTile(map, currentX, currentY)) {
-      return isTarget;
+    if (!isOrigin) {
+      const isBlocking = isVisionBlockingTile(map, currentX, currentY);
+      if (isBlocking) {
+        occludingTilesSeen += 1;
+        if (occludingTilesSeen > occludingTileDepth) {
+          return false;
+        }
+      } else if (occludingTilesSeen > 0) {
+        return false;
+      }
     }
     if (isTarget) {
       return true;

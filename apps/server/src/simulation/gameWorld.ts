@@ -51,6 +51,8 @@ const logger = createLogger("gameWorld");
 const rotationStep = 0.1;
 const forwardThrust = 80;
 const reverseThrust = 40;
+// Velocity retention controls drag; 0.96 roughly doubles sustained player speed versus 0.92 while leaving thrust input unchanged.
+const playerVelocityRetention = 0.96;
 
 export class GameWorld {
   // persistence owns all durable repositories used by the authoritative simulation.
@@ -285,8 +287,8 @@ export class GameWorld {
       });
       player.position = resolved.position;
       player.velocity = resolved.velocity;
-      player.velocity.x *= 0.92;
-      player.velocity.y *= 0.92;
+      player.velocity.x *= playerVelocityRetention;
+      player.velocity.y *= playerVelocityRetention;
     }
   }
 

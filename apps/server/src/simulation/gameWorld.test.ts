@@ -57,6 +57,32 @@ describe("GameWorld", () => {
     expect(Math.abs(player.position.y - startY)).toBeGreaterThan(Math.abs(player.position.x - startX));
   });
 
+  it("allows a higher sustained player speed while keeping thrust input incremental", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    player.position = { x: 128, y: 128 };
+    player.rotation = 0;
+
+    for (let tick = 1; tick <= 60; tick += 1) {
+      await world.handleMessage("player-1", {
+        type: "moveInput",
+        thrustForward: true,
+        thrustReverse: false,
+        rotateLeft: false,
+        rotateRight: false,
+        tick
+      });
+      await world.tick();
+    }
+
+    expect(player.velocity.x).toBeGreaterThan(55);
+    expect(Math.abs(player.velocity.y)).toBeLessThan(0.001);
+  });
+
   it("spawns weapon projectiles from the front hardpoint and fires along ship heading", async () => {
     const world = new GameWorld();
     await world.initialize();
@@ -251,6 +277,32 @@ describe("GameWorld", () => {
 
     expect(enemy.aiState).toBe("idle");
     expect(enemy.velocity).toEqual({ x: 0, y: 0 });
+  });
+
+  it("reveals a limited depth of occluding terrain without seeing open space behind it", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    rootMap.chunks["0,0"].cells = Array(64).fill(0);
+    rootMap.chunks["1,0"].cells = Array(64).fill(0);
+    player.position = { x: 16, y: 16 };
+
+    rootMap.chunks["0,0"].cells[1] = 1;
+    rootMap.chunks["0,0"].cells[2] = 1;
+    rootMap.chunks["0,0"].cells[3] = 1;
+    rootMap.chunks["0,0"].cells[4] = 1;
+
+    const snapshot = world.getSnapshot("player-1");
+    const chunk = snapshot.chunks.find((entry) => entry.chunkKey === "0,0");
+
+    expect(chunk?.visibility[1]).toBe(2);
+    expect(chunk?.visibility[2]).toBe(2);
+    expect(chunk?.visibility[3]).toBe(2);
+    expect(chunk?.visibility[4]).toBe(0);
+    expect(chunk?.visibility[5]).toBe(0);
   });
 
   it("keeps remembered terrain stable while hidden and restores it after reconnect", async () => {
