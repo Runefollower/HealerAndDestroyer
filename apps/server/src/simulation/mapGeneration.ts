@@ -1,10 +1,15 @@
-import type { ActiveMapState, ChunkState, Vec2 } from "@healer/shared";
+import { TERRAIN_CELL_TYPES, type ActiveMapState, type ChunkState, type Vec2 } from "@healer/shared";
 
 // CHUNK_SIZE is the shared terrain chunk width/height in cells.
 export const CHUNK_SIZE = 8;
 
 // GENERATED_TILE_SIZE mirrors the world-space pixel size used by terrain/collision code.
 export const GENERATED_TILE_SIZE = 32;
+
+// orePocketPlasmaChance controls how often generated mineable pockets use the richer plasma material.
+const orePocketPlasmaChance = 0.28;
+// orePocketPlacementChance controls how dense each generated pocket is around its chosen center.
+const orePocketPlacementChance = 0.65;
 
 export interface GeneratedMapLayout {
   widthTiles: number;
@@ -38,7 +43,7 @@ export function generateCaveMapLayout(seed: string, widthInChunks: number, heigh
   const widthTiles = widthInChunks * CHUNK_SIZE;
   const heightTiles = heightInChunks * CHUNK_SIZE;
   const random = createSeededRandom(seed);
-  const cells = new Array<number>(widthTiles * heightTiles).fill(1);
+  const cells = new Array<number>(widthTiles * heightTiles).fill(TERRAIN_CELL_TYPES.ferriteRock);
 
   // Required anchors are intentionally inset so ship collision radii have room around key locations.
   const spawnTile = { x: 3, y: 3 };
@@ -103,7 +108,7 @@ function carveRoom(cells: number[], widthTiles: number, heightTiles: number, x: 
 
   for (let tileY = clippedY; tileY < clippedY + clippedHeight; tileY += 1) {
     for (let tileX = clippedX; tileX < clippedX + clippedWidth; tileX += 1) {
-      cells[tileY * widthTiles + tileX] = 0;
+      cells[tileY * widthTiles + tileX] = TERRAIN_CELL_TYPES.empty;
     }
   }
 
@@ -152,7 +157,7 @@ function carveDisk(cells: number[], widthTiles: number, heightTiles: number, cen
         continue;
       }
       if (Math.hypot(tileX - centerX, tileY - centerY) <= radius + 0.35) {
-        cells[tileY * widthTiles + tileX] = 0;
+        cells[tileY * widthTiles + tileX] = TERRAIN_CELL_TYPES.empty;
       }
     }
   }
@@ -167,7 +172,7 @@ function addOrePockets(cells: number[], widthTiles: number, heightTiles: number,
   for (let index = 0; index < pocketCount; index += 1) {
     const centerX = 2 + Math.floor(random() * Math.max(1, widthTiles - 4));
     const centerY = 2 + Math.floor(random() * Math.max(1, heightTiles - 4));
-    const material = random() > 0.72 ? 2 : 1;
+    const material = random() < orePocketPlasmaChance ? TERRAIN_CELL_TYPES.plasmaRock : TERRAIN_CELL_TYPES.ferriteRock;
 
     for (let tileY = centerY - 1; tileY <= centerY + 1; tileY += 1) {
       for (let tileX = centerX - 1; tileX <= centerX + 1; tileX += 1) {
@@ -177,7 +182,7 @@ function addOrePockets(cells: number[], widthTiles: number, heightTiles: number,
         if (protectedKeys.has(createTileKey(tileX, tileY))) {
           continue;
         }
-        if (hasOpenNeighbor(cells, widthTiles, heightTiles, tileX, tileY) && random() > 0.35) {
+        if (hasOpenNeighbor(cells, widthTiles, heightTiles, tileX, tileY) && random() < orePocketPlacementChance) {
           cells[tileY * widthTiles + tileX] = material;
         }
       }
@@ -207,7 +212,13 @@ function hasOpenNeighbor(cells: number[], widthTiles: number, heightTiles: numbe
   return neighborOffsets.some((offset) => {
     const neighborX = tileX + offset.x;
     const neighborY = tileY + offset.y;
-    return neighborX >= 0 && neighborY >= 0 && neighborX < widthTiles && neighborY < heightTiles && cells[neighborY * widthTiles + neighborX] === 0;
+    return (
+      neighborX >= 0 &&
+      neighborY >= 0 &&
+      neighborX < widthTiles &&
+      neighborY < heightTiles &&
+      cells[neighborY * widthTiles + neighborX] === TERRAIN_CELL_TYPES.empty
+    );
   });
 }
 
@@ -223,7 +234,7 @@ function toChunks(cells: number[], widthInChunks: number, heightInChunks: number
         for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
           const tileX = chunkX * CHUNK_SIZE + localX;
           const tileY = chunkY * CHUNK_SIZE + localY;
-          chunkCells.push(cells[tileY * widthTiles + tileX] ?? 1);
+          chunkCells.push(cells[tileY * widthTiles + tileX] ?? TERRAIN_CELL_TYPES.ferriteRock);
         }
       }
 

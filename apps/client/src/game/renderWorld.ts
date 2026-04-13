@@ -1,4 +1,4 @@
-import { selectTerrainVariant, type ProjectileSnapshot, type SnapshotMessage } from "@healer/shared";
+import { getTerrainMaterialDefinition, isEmptyTerrainCell, selectTerrainVariant, type ProjectileSnapshot, type SnapshotMessage } from "@healer/shared";
 import { Container, Graphics, Sprite, Text, type Container as PixiContainer } from "pixi.js";
 import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
@@ -120,7 +120,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   for (const chunk of snapshot.chunks) {
     chunk.cells.forEach((cell, index) => {
       const cellVisibility = chunk.visibility[index] ?? 0;
-      if (cellVisibility === 0 || cell === 0) {
+      if (cellVisibility === 0 || isEmptyTerrainCell(cell)) {
         return;
       }
       const localX = index % 8;
@@ -141,16 +141,14 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       sprite.position.set(x - terrainSpriteInset, y - terrainSpriteInset);
       sprite.width = terrainSpriteSize;
       sprite.height = terrainSpriteSize;
-      sprite.alpha = cell === 1 ? 0.99 : 0.95;
-      if (cell === 2) {
-        sprite.tint = 0xc4d7e6;
-      }
-      if (cell >= 3) {
-        sprite.tint = 0xb7ccd8;
+      const material = getTerrainMaterialDefinition(cell);
+      sprite.alpha = material.renderAlpha;
+      if (material.tint !== undefined) {
+        sprite.tint = material.tint;
       }
       if (cellVisibility === 1) {
         // Remembered cells are tinted and dimmed to distinguish fog-of-war memory from live vision.
-        sprite.tint = cell === 2 ? 0x8fa3b2 : 0x7f8a95;
+        sprite.tint = material.rememberedTint;
         sprite.alpha *= 0.7;
       }
       worldLayer.addChild(sprite);
@@ -304,7 +302,7 @@ function buildTerrainCellMap(snapshot: SnapshotMessage, viewport: WorldViewport)
   const cells = new Map<string, TerrainCellRecord>();
   for (const chunk of snapshot.chunks) {
     chunk.cells.forEach((cell, index) => {
-      if (cell === 0) {
+      if (isEmptyTerrainCell(cell)) {
         return;
       }
       const localX = index % 8;
@@ -354,13 +352,7 @@ function pruneTerrainBursts(now: number): void {
 
 // Chooses burst tint by terrain material value.
 function terrainBurstTint(cellValue: number): number {
-  if (cellValue === 2) {
-    return 0x9ad7ff;
-  }
-  if (cellValue >= 3) {
-    return 0xc6d8e6;
-  }
-  return 0xb9a48a;
+  return getTerrainMaterialDefinition(cellValue).burstTint;
 }
 
 // Creates the Pixi container for one terrain destruction burst.

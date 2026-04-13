@@ -1,5 +1,6 @@
 import {
   distance,
+  isSolidTerrainCell,
   type ActiveMapState,
   type ChunkSnapshot,
   type DropSnapshot,
@@ -244,7 +245,7 @@ function isVisionBlockingTile(map: ActiveMapState, tileX: number, tileY: number)
   // First-pass visibility only treats terrain as opaque. Structures and foundries remain visible objects,
   // but they do not block line of sight the way cave walls do.
   const cellValue = chunk.cells[localY * CHUNK_SIZE + localX] ?? 0;
-  return cellValue > 0;
+  return isSolidTerrainCell(cellValue);
 }
 
 // Returns an existing terrain memory map or creates an empty one for the player/map pair.

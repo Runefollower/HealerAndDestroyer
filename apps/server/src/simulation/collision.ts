@@ -1,5 +1,5 @@
 import type { ActiveMapState, EnemyState, PlayerShipState, Vec2 } from "@healer/shared";
-import { clamp, distance } from "@healer/shared";
+import { clamp, distance, isEmptyTerrainCell } from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
 import { TILE_SIZE } from "./terrain.js";
 
@@ -244,7 +244,7 @@ function isSolidTile(map: ActiveMapState, tileX: number, tileY: number): boolean
   }
 
   const cellValue = chunk.cells[localY * CHUNK_SIZE + localX] ?? 0;
-  if (cellValue === 0) {
+  if (isEmptyTerrainCell(cellValue)) {
     return false;
   }
 

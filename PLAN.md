@@ -103,15 +103,26 @@ The following major milestones are already implemented in the current prototype 
 - hidden fog no longer draws a rectangle for every unseen tile; the dark background represents unexplored space while remembered fog still renders where needed
 - snapshot rendering now receives the camera viewport and culls off-screen terrain, entities, fog, and transient effects with padding
 
+18. Terrain material definitions and behavior centralization
+- terrain cell ids, solidity, break damage, debris resources, and client render styling now live in one shared material registry
+- server terrain mining/destruction, collision, visibility, map generation, and client rendering now read terrain behavior from shared helpers instead of duplicating `0`, `1`, and `2` material assumptions
+- current active generated materials remain open space, ferrite rock, and plasma-bearing rock, with reserved material slots defined for later richer ore/biome work
+- tests now cover the shared terrain material registry and map generation uses named material constants
+
 ## Summary
 
-The next phase should harden and tune procedural map generation now that the first seed-driven cave layout is in place. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, and first-pass client viewport culling working well enough that the next major unlock is making generated spaces more robust and more interesting.
+The next phase should turn the current procedural cave prototype into a more content-ready exploration loop. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, first-pass client viewport culling, and centralized terrain material definitions. The next major unlock is using those foundations to make exploration, materials, objectives, and ship progression less placeholder-like and closer to the design document.
 
 The priority for the next phase is:
 
-1. procedural generation hardening for route connectivity, spawn safety, objective placement, and resource distribution
-2. richer cave layout tuning so generated spaces create readable corridors, chambers, cover, and mining opportunities
-3. client performance hardening only where playtesting still shows spikes, with chunk/display caching as the next rendering optimization if viewport culling is not enough
+1. expand the terrain/material economy from ferrite/plasma placeholders toward the GDD's rock/ore resource model
+2. harden procedural generation with validation, explicit map archetypes, safer placement, and better resource/encounter distribution
+3. start the persistent world-graph expansion path so discovered connections can generate and persist additional finite maps beyond the fixed root/deeper pair
+4. add encounter and objective variety around enemy infrastructure, defensive pockets, and foundry-adjacent pressure
+5. build out the ship-design workstation flow so players can select hulls and assign weapons/modules onto visible mount points at valid ship-building locations
+6. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression
+7. add exploration information tools such as minimap/fog summaries or scanner-style discovery only after the world/resource loop has enough content to reveal
+8. continue client performance hardening only where playtesting shows spikes, with chunk/display caching as the next rendering optimization if viewport culling is not enough
 
 ## Key Changes
 
@@ -291,6 +302,90 @@ Next implementation target, only if playtesting still shows periodic drops:
 - keep dynamic entities, projectiles, labels, and transient effects on lightweight separate layers
 - consider reducing server snapshot rate or decoupling static terrain redraw frequency from dynamic entity updates if spikes persist
 
+### 7. Terrain material and resource economy expansion
+
+Status: shared material registry complete; content expansion next.
+
+- the current code now has a single shared source of truth for terrain cell ids, solidity, break damage, drops, and render treatment
+- the GDD calls for common environment blocks, specialized ore blocks, weapon-vs-mining extraction differences, and early/advanced resource tiers
+- the next implementation pass should extend the current placeholder `ferrite` and `plasma-crystal` model toward a more intentional material ladder
+
+Next implementation target:
+
+- decide the first playable resource set, likely starting with a small subset of the GDD list rather than all proposed materials at once
+- map terrain materials to concrete drops such as common rock/ferrite plus at least one or two ore types
+- update module and hull costs so the new materials have immediate gameplay purpose
+- keep weapon destruction viable but less efficient than mining modules through existing `yieldMultiplier` rules
+- add generation controls for ore rarity, pocket size, and map/archetype-specific resource distribution
+- add tests for each material's break damage, debris resources, and generated-map distribution expectations
+
+### 8. Procedural generation hardening and world graph expansion
+
+Status: root/deeper generated maps complete; validation, archetypes, and discovery-based expansion next.
+
+- the GDD recommends a graph of finite persistent cave maps, with each map carrying its own seed, layout, objectives, persistence state, and saved connections
+- the prototype currently has a fixed root map and fixed deeper map generated from stable seeds
+- the next generation pass should make maps more robust and provide hooks for future on-demand discovery
+
+Next implementation target:
+
+- add generator validation helpers that fail fast when required anchors are disconnected, crowded, or colliding
+- introduce explicit generation parameter objects for starter-safe caves, foundry arenas, resource caverns, and tunnel networks
+- move hard-coded root/deeper generation settings into map summaries or generation config data
+- prepare connection records so undiscovered exits can reserve a destination seed and generate a persistent map when first used
+- add tests for generated safe placement, minimum navigable widths, resource distribution, and persistence deltas applied over a generated baseline
+
+### 9. Encounter, objective, and enemy infrastructure growth
+
+Status: foundry objective first pass complete; variety and infrastructure behavior next.
+
+- the current foundry loop proves the basic objective gate: destroy a structure, reduce pressure, unlock the deeper path
+- the GDD calls for enemy fortification pockets, default defense rebuilding, richer enemy roles, and objective escalation
+- this should come after generation validation so encounters can be placed in reliable spaces
+
+Next implementation target:
+
+- add at least one additional enemy role beyond the current scout/sentry behavior, such as a defender, repair drone, or burrower
+- create generated enemy fortification pockets around foundries and resource vaults
+- prototype slow defense rebuilding while an enemy production structure is active, stopping rebuilds when the foundry is destroyed
+- add objective feedback for reduced enemy pressure and newly safer routes
+- add acceptance coverage for fortification placement, foundry pressure, and post-destruction state
+
+### 10. Ship design workstation and module content progression
+
+Status: builder/stable mechanics and module-gated actions complete; full ship-design UI next.
+
+- the GDD's immediate next steps call for turning hulls and module families into concrete data tables with costs, weights, power use, health, and build times
+- the current prototype has enough builder and module plumbing that adding new archetype content should now produce visible gameplay differences
+- the current builder flow can construct ships and install modules, but it still needs a clearer ship-design screen where players choose a hull and place weapons/modules onto the hull's available mount points
+- ship creation and modification should happen at valid ship-building locations; if we keep calling this interaction a foundry in gameplay, it should remain distinct in code/design from enemy production foundries
+
+Next implementation target:
+
+- design a dedicated ship-configuration screen with hull selection, current stable ships, selected hull preview, mount-point list, and available module inventory
+- show each hull's hardpoints/mount points with type and orientation, then allow compatible weapons, mining tools, support tools, engines, and other modules to be assigned to those points
+- validate mount compatibility, resource costs, power use, mass, hardpoint occupancy, and build or modification timing before the server accepts a design
+- preview the resulting ship stats and role tradeoffs before the player commits: hull, mass, power use, available hardpoints, weapon arcs, cost, and build time
+- persist the resulting ship design as the stored ship record and replicate the active design to the world renderer so visible hull/module parts match the chosen loadout
+- decide whether modifying an existing ship is instant at the ship-building location, uses a short refit timer, or only requires timers for newly constructed hulls
+- add or tune first-pass hull/module data for the scout, healer, destroyer, miner, and heavy directions without over-expanding the roster
+- make material costs align with the new terrain/resource economy so exploration feeds ship choices
+- add tests for content validity, build costs, mount compatibility, module install rules, saved ship design persistence, and active-ship behavior across the expanded catalog
+
+### 11. Exploration information and player-facing map tools
+
+Status: server-side line of sight and terrain memory complete; minimap/sensors not started.
+
+- the GDD recommends fog-of-war minimap memory, scanner pings, and sensor modules for structure/salvage detection
+- this should follow the resource/generation pass so there is meaningful hidden information to reveal
+
+Next implementation target:
+
+- add a small minimap or exploration summary that distinguishes unknown, remembered, and currently visible terrain
+- prototype a scanner ping action or sensor module that reveals nearby structure, salvage, or connection hints
+- keep enemy movement hidden in unexplored fog unless a sensor rule explicitly reveals it
+- add tests for sensor visibility rules and remembered-map state persistence
+
 ## Test Plan
 
 Add or update automated scenarios for:
@@ -321,6 +416,24 @@ Add or update automated scenarios for:
   - generated root maps include a connected traversable path from spawn to builder, foundry, and deeper-route anchor
   - generated maps include enough solid terrain for mining and LOS cover without blocking required progression
   - persisted terrain edits, foundry destruction, and player spawn/map state restore correctly over a generated baseline
+- terrain material and resource economy:
+  - each terrain material defines its cell id, solidity, break damage, debris resources, and render treatment in the shared registry
+  - generated ore distribution stays within expected rarity/density bounds for the selected map archetype
+  - mining modules and weapon destruction produce the intended relative yields from the same material
+  - hull/module costs remain valid after resource additions and cannot reference undefined resources
+- ship design workstation:
+  - the ship-building screen lists available hulls and shows the selected hull's mount points
+  - compatible weapons/modules can be assigned to open hardpoints while incompatible modules are rejected with clear feedback
+  - committed ship designs persist into the stable, can become the active ship, and render with the selected hull/module parts
+  - server validation rejects invalid mount occupancy, missing resources, invalid hardpoint types, and stale design submissions
+- world graph and discovery:
+  - an undiscovered connection can reserve or generate a deterministic destination map
+  - returning through a known connection reloads the same persistent destination rather than creating a duplicate map
+  - terrain edits, foundry state, and player map position persist across generated map transitions
+- encounter and progression expansion:
+  - enemy fortification pockets spawn in valid generated spaces without blocking required routes
+  - foundry destruction reduces local pressure and stops any first-pass defense rebuilding behavior
+  - expanded hull/module data validates costs, hardpoints, power use, and build timers
 
 Optional terrain-art follow-up checks, only if later phases reveal a need:
 
@@ -337,3 +450,5 @@ Optional terrain-art follow-up checks, only if later phases reveal a need:
 - fog-of-war style memory can begin with the main playfield before any dedicated minimap/exploration UI is expanded
 - procedural generation should be deterministic and seed-driven before it becomes highly varied or content-rich
 - generated maps can start small and conservative; reliability, connectedness, and valid placement matter more than visual novelty in the first pass
+- resource expansion should start with a small useful material set before adding every GDD-proposed resource tier
+- discovery-based map generation should preserve deterministic seeds and persisted deltas before adding deep biome variety

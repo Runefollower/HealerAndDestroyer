@@ -1,4 +1,4 @@
-import { asEntityId, type ActiveMapState, type ResourceMap } from "@healer/shared";
+import { TERRAIN_CELL_TYPES, asEntityId, getTerrainMaterialDefinition, isEmptyTerrainCell, type ActiveMapState, type ResourceMap } from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
 
 // TILE_SIZE converts between pixel/world coordinates and persisted terrain cells.
@@ -70,7 +70,7 @@ export function damageTerrainAt(
     return { hit: false, destroyed: false };
   }
   const currentValue = chunk.cells[tile.cellIndex] ?? 0;
-  if (currentValue === 0) {
+  if (isEmptyTerrainCell(currentValue)) {
     return { hit: false, destroyed: false };
   }
 
@@ -79,7 +79,7 @@ export function damageTerrainAt(
   }
 
   // Clear the terrain cell, mark the chunk for persistence, and spawn deterministic-ish debris id data.
-  chunk.cells[tile.cellIndex] = 0;
+  chunk.cells[tile.cellIndex] = TERRAIN_CELL_TYPES.empty;
   chunk.dirty = true;
   const resources = createTerrainDebrisResources(currentValue, yieldMultiplier);
   map.drops[`terrain-${tile.chunkKey}-${tile.cellIndex}-${tickCounter}`] = {
@@ -93,18 +93,12 @@ export function damageTerrainAt(
 
 // Maps prototype terrain material values to the damage required to break them.
 function getTerrainCriticalDamage(cellValue: number): number {
-  if (cellValue === 1) {
-    return 20;
-  }
-  if (cellValue === 2) {
-    return 30;
-  }
-  return 36;
+  return getTerrainMaterialDefinition(cellValue).breakDamage;
 }
 
 // Converts a terrain material value into the resources dropped after destruction.
 function createTerrainDebrisResources(cellValue: number, yieldMultiplier: number): ResourceMap {
-  const baseResources = cellValue === 1 ? { ferrite: 2 } : { ferrite: 1, "plasma-crystal": 1 };
+  const baseResources = getTerrainMaterialDefinition(cellValue).debrisResources;
   return Object.fromEntries(
     Object.entries(baseResources).map(([resourceId, amount]) => [resourceId, Math.max(1, Math.round(amount * yieldMultiplier))])
   );

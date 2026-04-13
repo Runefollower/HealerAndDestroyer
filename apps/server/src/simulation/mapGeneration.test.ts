@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TERRAIN_CELL_TYPES, isEmptyTerrainCell, isSolidTerrainCell } from "@healer/shared";
 import { CHUNK_SIZE, GENERATED_TILE_SIZE, generateCaveMapLayout, type GeneratedMapLayout } from "./mapGeneration.js";
 
 describe("map generation", () => {
@@ -28,11 +29,11 @@ describe("map generation", () => {
     const builderTile = worldToTile(layout.builderPosition);
     const foundryTile = worldToTile(layout.foundryPosition);
 
-    expect(getCell(layout, spawnTile.x, spawnTile.y)).toBe(0);
-    expect(getCell(layout, builderTile.x, builderTile.y)).toBe(0);
-    expect(getCell(layout, foundryTile.x, foundryTile.y)).toBe(0);
-    expect(getCell(layout, layout.sourceAnchor.x, layout.sourceAnchor.y)).toBe(0);
-    expect(getCell(layout, layout.destinationAnchor.x, layout.destinationAnchor.y)).toBe(0);
+    expect(getCell(layout, spawnTile.x, spawnTile.y)).toBe(TERRAIN_CELL_TYPES.empty);
+    expect(getCell(layout, builderTile.x, builderTile.y)).toBe(TERRAIN_CELL_TYPES.empty);
+    expect(getCell(layout, foundryTile.x, foundryTile.y)).toBe(TERRAIN_CELL_TYPES.empty);
+    expect(getCell(layout, layout.sourceAnchor.x, layout.sourceAnchor.y)).toBe(TERRAIN_CELL_TYPES.empty);
+    expect(getCell(layout, layout.destinationAnchor.x, layout.destinationAnchor.y)).toBe(TERRAIN_CELL_TYPES.empty);
 
     const reachable = findReachableOpenTiles(layout, spawnTile);
     expect(reachable.has(createTileKey(builderTile.x, builderTile.y))).toBe(true);
@@ -44,7 +45,7 @@ describe("map generation", () => {
     const layout = generateCaveMapLayout("ore-seed", 12, 9);
     const cells = flattenCells(layout);
     const mineableWallCount = cells.filter((cell, index) => {
-      if (cell <= 0) {
+      if (!isSolidTerrainCell(cell)) {
         return false;
       }
       const tileX = index % layout.widthTiles;
@@ -75,7 +76,7 @@ function findReachableOpenTiles(layout: GeneratedMapLayout, start: { x: number; 
   while (queue.length > 0) {
     const tile = queue.shift()!;
     const key = createTileKey(tile.x, tile.y);
-    if (reachable.has(key) || getCell(layout, tile.x, tile.y) !== 0) {
+    if (reachable.has(key) || !isEmptyTerrainCell(getCell(layout, tile.x, tile.y))) {
       continue;
     }
 
@@ -98,20 +99,20 @@ function hasOpenNeighbor(layout: GeneratedMapLayout, tileX: number, tileY: numbe
     { x: tileX - 1, y: tileY },
     { x: tileX, y: tileY + 1 },
     { x: tileX, y: tileY - 1 }
-  ].some((neighbor) => getCell(layout, neighbor.x, neighbor.y) === 0);
+  ].some((neighbor) => isEmptyTerrainCell(getCell(layout, neighbor.x, neighbor.y)));
 }
 
 // Reads one tile value from the generated chunk dictionary.
 function getCell(layout: GeneratedMapLayout, tileX: number, tileY: number): number {
   if (tileX < 0 || tileY < 0 || tileX >= layout.widthTiles || tileY >= layout.heightTiles) {
-    return 1;
+    return TERRAIN_CELL_TYPES.ferriteRock;
   }
 
   const chunkX = Math.floor(tileX / CHUNK_SIZE);
   const chunkY = Math.floor(tileY / CHUNK_SIZE);
   const localX = tileX % CHUNK_SIZE;
   const localY = tileY % CHUNK_SIZE;
-  return layout.chunks[`${chunkX},${chunkY}`]?.cells[localY * CHUNK_SIZE + localX] ?? 1;
+  return layout.chunks[`${chunkX},${chunkY}`]?.cells[localY * CHUNK_SIZE + localX] ?? TERRAIN_CELL_TYPES.ferriteRock;
 }
 
 // Converts world-space positions back to tile coordinates for anchor validation.
