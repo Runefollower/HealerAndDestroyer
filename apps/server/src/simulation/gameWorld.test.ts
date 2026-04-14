@@ -523,6 +523,118 @@ describe("GameWorld", () => {
     expect(rootMap.players["player-1"].hull).toBeGreaterThan(80);
   });
 
+  it("builds a new ship from a submitted hull and hardpoint design", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const playerId = asPlayerId("player-1");
+    const save = await world.persistence.players.getPlayer(world.worldId, playerId);
+    if (!save) {
+      throw new Error("Expected player save.");
+    }
+    save.resourceCounts = { ferrite: 200, "plasma-crystal": 50 };
+    await world.persistence.players.savePlayer(save);
+
+    const rootMap = world.runtime.maps["map-root"];
+    const builder = Object.values(rootMap.structures).find((structure) => structure.structureTypeId === "builder-site");
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
+    rootMap.players["player-1"].inventory = { ferrite: 200, "plasma-crystal": 50 };
+    rootMap.players["player-1"].position = { ...builder.position };
+
+    const buildResponse = await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "submitShipDesign",
+      mode: "new",
+      hullId: "warden-healer",
+      modules: [{ hardpointId: "support-top", moduleId: "repair-beam" }]
+    });
+    if (buildResponse[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response.");
+    }
+
+    const designedShip = buildResponse[0].ships.find((ship) => ship.ship.hullId === "warden-healer");
+    expect(designedShip?.ship.status).toBe("building");
+    expect(designedShip?.ship.modules).toEqual([{ moduleId: "repair-beam", hardpointId: "support-top", currentHealth: 20 }]);
+    expect(rootMap.players["player-1"].inventory).toEqual({ ferrite: 105, "plasma-crystal": 26 });
+  });
+
+  it("refits the active ship immediately and returns removed modules to storage", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const playerId = asPlayerId("player-1");
+    const rootMap = world.runtime.maps["map-root"];
+    const builder = Object.values(rootMap.structures).find((structure) => structure.structureTypeId === "builder-site");
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
+    rootMap.players["player-1"].position = { ...builder.position };
+
+    const response = await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "submitShipDesign",
+      mode: "refit",
+      hullId: "sparrow-scout",
+      shipId: "ship-player-1",
+      modules: [
+        { hardpointId: "engine-rear", moduleId: "starter-thruster" },
+        { hardpointId: "utility-belly", moduleId: "mining-laser" }
+      ]
+    });
+    if (response[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response.");
+    }
+
+    const activeShip = response[0].ships.find((ship) => ship.shipId === "ship-player-1");
+    expect(activeShip?.ship.modules.map((module) => module.hardpointId)).toEqual(["engine-rear", "utility-belly"]);
+    expect(rootMap.players["player-1"].modules.map((module) => module.hardpointId)).toEqual(["engine-rear", "utility-belly"]);
+
+    const saved = await world.persistence.players.getPlayer(world.worldId, playerId);
+    expect(saved?.craftedModules).toContainEqual({ moduleId: "pulse-cannon", quantity: 1 });
+  });
+
+  it("rejects submitted ship designs with incompatible hardpoint modules", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const builder = Object.values(rootMap.structures).find((structure) => structure.structureTypeId === "builder-site");
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
+    rootMap.players["player-1"].position = { ...builder.position };
+
+    const response = await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "submitShipDesign",
+      mode: "refit",
+      hullId: "sparrow-scout",
+      shipId: "ship-player-1",
+      modules: [{ hardpointId: "weapon-front", moduleId: "repair-beam" }]
+    });
+    if (response[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response.");
+    }
+
+    const activeShip = response[0].ships.find((ship) => ship.shipId === "ship-player-1");
+    expect(activeShip?.ship.modules).toEqual([
+      { moduleId: "starter-thruster", hardpointId: "engine-rear", currentHealth: 30 },
+      { moduleId: "pulse-cannon", hardpointId: "weapon-front", currentHealth: 24 },
+      { moduleId: "mining-laser", hardpointId: "utility-belly", currentHealth: 20 }
+    ]);
+    expect(world.drainPendingMessages("player-1")).toContainEqual(
+      expect.objectContaining({
+        type: "actionFeedback",
+        code: "ship_design_incompatible_module"
+      })
+    );
+  });
+
   it("places map transitions on the nearest valid non-colliding position", async () => {
     const world = new GameWorld();
     await world.initialize();

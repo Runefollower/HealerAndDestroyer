@@ -3,7 +3,7 @@ import { Application, Container } from "pixi.js";
 import type { InstalledModule, ServerMessage, SnapshotMessage } from "@healer/shared";
 import { attachInputListeners, createInputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
-import { refreshBuilderTimers, renderBuilderState } from "./renderBuilder.js";
+import { createShipDesignAction, refreshBuilderTimers, renderBuilderState, updateBuilderDraft } from "./renderBuilder.js";
 import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
 import { preloadPlayerShipTextures } from "./playerShipAssets.js";
@@ -111,7 +111,29 @@ export async function bootstrapClient(): Promise<void> {
     const targetId = button.dataset.target;
     const shipId = button.dataset.ship;
     const hardpointId = button.dataset.hardpoint;
-    if (!action || !targetId) {
+    if (!action) {
+      return;
+    }
+
+    if (action.startsWith("design-")) {
+      if (!store.builderState) {
+        return;
+      }
+      const inventory = store.latestSnapshot?.inventory ?? {};
+      if (action === "design-submit") {
+        const designAction = createShipDesignAction(store.builderDraft, store.builderState, inventory);
+        if (designAction) {
+          network.sendBuilderAction(designAction);
+        }
+        return;
+      }
+      const draftAction = action.replace("design-", "") as Parameters<typeof updateBuilderDraft>[3];
+      store.builderDraft = updateBuilderDraft(store.builderDraft, store.builderState, inventory, draftAction);
+      renderBuilderState(builder, store.builderState, clockOffsetMs, inventory, store.builderDraft);
+      return;
+    }
+
+    if (!targetId) {
       return;
     }
 
@@ -148,6 +170,13 @@ export async function bootstrapClient(): Promise<void> {
     if (!store.builderOpen) {
       // Closing the builder drops stale state so the next open re-syncs with the server.
       store.builderState = null;
+      store.builderDraft = {
+        mode: "new",
+        hullIndex: 0,
+        shipIndex: 0,
+        hardpointIndex: 0,
+        selectedModules: {}
+      };
       syncBuilderVisibility(builder, store);
       return;
     }
@@ -256,7 +285,7 @@ function handleServerMessage(
     store.builderState = message;
     const nextOffset = message.serverTime - Date.now();
     if (store.builderOpen) {
-      renderBuilderState(builder, message, nextOffset);
+      renderBuilderState(builder, message, nextOffset, store.latestSnapshot?.inventory ?? {}, store.builderDraft);
     }
     syncBuilderVisibility(builder, store);
     return nextOffset;

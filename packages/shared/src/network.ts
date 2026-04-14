@@ -45,7 +45,12 @@ export const changeMapSchema = z.object({
   connectionId: z.string()
 });
 
-export const builderActionSchema = z.object({
+const builderDesignModuleSchema = z.object({
+  hardpointId: z.string(),
+  moduleId: z.string()
+});
+
+const legacyBuilderActionSchema = z.object({
   type: z.literal("builderAction"),
   action: z.enum(["craftModule", "startShipBuild", "swapShip", "installModule", "removeModule"]),
   targetId: z.string(),
@@ -53,12 +58,23 @@ export const builderActionSchema = z.object({
   hardpointId: z.string().optional()
 });
 
+const submitShipDesignActionSchema = z.object({
+  type: z.literal("builderAction"),
+  action: z.literal("submitShipDesign"),
+  mode: z.enum(["new", "refit"]),
+  hullId: z.string(),
+  shipId: z.string().optional(),
+  modules: z.array(builderDesignModuleSchema)
+});
+
+export const builderActionSchema = z.discriminatedUnion("action", [legacyBuilderActionSchema, submitShipDesignActionSchema]);
+
 export const joinWorldSchema = z.object({
   type: z.literal("joinWorld"),
   playerId: z.string()
 });
 
-export const clientMessageSchema = z.discriminatedUnion("type", [
+export const clientMessageSchema = z.union([
   moveInputSchema,
   fireWeaponSchema,
   activateModuleSchema,
@@ -294,4 +310,3 @@ export function createSnapshotMessage(
     deeperPathUnlocked
   };
 }
-

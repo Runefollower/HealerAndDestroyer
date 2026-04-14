@@ -18,11 +18,14 @@ import {
   type BuilderActionMessage,
   type ChangeMapMessage,
   type FireWeaponMessage,
+  type InstalledModule,
   type InteractMessage,
   type PersistentWorld,
   type PlayerSave,
+  type ResourceMap,
   type ServerMessage,
   type SnapshotMessage,
+  type StoredShip,
   type WorldRuntimeState
 } from "@healer/shared";
 import { createDefaultPlayerSave, createRuntimeState, createWorldGraph } from "./createWorld.js";
@@ -53,6 +56,7 @@ const forwardThrust = 80;
 const reverseThrust = 40;
 // Velocity retention controls drag; 0.96 roughly doubles sustained player speed versus 0.92 while leaving thrust input unchanged.
 const playerVelocityRetention = 0.96;
+type SubmitShipDesignMessage = Extract<BuilderActionMessage, { action: "submitShipDesign" }>;
 
 export class GameWorld {
   // persistence owns all durable repositories used by the authoritative simulation.
@@ -633,6 +637,10 @@ export class GameWorld {
       }
     }
 
+    if (message.action === "submitShipDesign") {
+      resourcesChanged = this.applySubmittedShipDesign(playerId, playerSave, message, now) || resourcesChanged;
+    }
+
     if (message.action === "swapShip" && playerSave.shipStable[message.targetId] && playerSave.shipStable[message.targetId].status === "ready") {
       // Swapping makes the old active ship ready and pushes the new active ship into runtime immediately.
       const currentShip = playerSave.shipStable[playerSave.activeShipId];
@@ -698,6 +706,168 @@ export class GameWorld {
     playerSave.updatedAt = now;
     await this.persistence.players.savePlayer(playerSave);
     return [createBuilderState(playerSave, now)];
+  }
+
+  // Applies the builder workstation's full hull/module design as one validated save mutation.
+  private applySubmittedShipDesign(
+    playerId: ReturnType<typeof asPlayerId>,
+    playerSave: PlayerSave,
+    message: SubmitShipDesignMessage,
+    now: number
+  ): boolean {
+    const hull = this.findHullForDesign(playerId, message.hullId, now);
+    if (!hull) {
+      return false;
+    }
+
+    const targetShip = message.mode === "refit" ? this.findRefitShip(playerId, playerSave, message, now) : null;
+    if (message.mode === "refit" && !targetShip) {
+      return false;
+    }
+
+    const preparedDesign = this.prepareSubmittedModules(playerId, playerSave, targetShip, hull, message.modules, now);
+    if (!preparedDesign) {
+      return false;
+    }
+
+    const totalCost = message.mode === "new" ? addResourceMaps(hull.buildCost, preparedDesign.craftCost) : preparedDesign.craftCost;
+    if (!hasEnoughResources(playerSave.resourceCounts, totalCost)) {
+      this.queueActionFeedback(playerId, "ship_design_insufficient_resources", "Design Blocked", "You need more resources for that hull or module loadout.", "warning", now);
+      return false;
+    }
+
+    playerSave.resourceCounts = subtractResourceMaps(playerSave.resourceCounts, totalCost);
+    playerSave.craftedModules = this.toCraftedModuleStacks(preparedDesign.availableModules);
+
+    if (message.mode === "new") {
+      const builtShipId = asShipId(`ship-${message.hullId}-${Date.now()}`);
+      const buildCompleteAt = hull.buildTimeMs > 0 ? now + hull.buildTimeMs : null;
+      playerSave.shipStable[builtShipId] = {
+        id: builtShipId,
+        name: hull.name,
+        hullId: hull.id,
+        modules: preparedDesign.installedModules,
+        hullIntegrity: hull.baseHull,
+        status: hull.buildTimeMs > 0 ? "building" : "ready",
+        buildStartedAt: now,
+        buildCompleteAt
+      };
+      logger.info("Ship design build accepted", {
+        playerId,
+        hullId: hull.id,
+        shipId: builtShipId,
+        modules: preparedDesign.installedModules.map((module) => module.moduleId)
+      });
+      return Object.keys(totalCost).length > 0;
+    }
+
+    targetShip!.modules = preparedDesign.installedModules;
+    if (targetShip!.id === playerSave.activeShipId) {
+      const runtimeMap = Object.values(this.runtime.maps).find((entry) => entry.players[playerId]);
+      if (runtimeMap) {
+        syncRuntimeShipFromSave(runtimeMap.players[playerId], playerSave);
+      }
+    }
+    this.queueActionFeedback(playerId, "ship_design_refit_applied", "Refit Applied", "Your ship loadout has been updated.", "info", now, 400, true);
+    return Object.keys(totalCost).length > 0;
+  }
+
+  // Resolves a hull id for design submission and queues user feedback for invalid content ids.
+  private findHullForDesign(playerId: ReturnType<typeof asPlayerId>, hullId: string, now: number): ReturnType<typeof getHullDefinition> | null {
+    try {
+      return getHullDefinition(hullId);
+    } catch {
+      this.queueActionFeedback(playerId, "ship_design_unknown_hull", "Design Blocked", "That hull is no longer available.", "warning", now);
+      return null;
+    }
+  }
+
+  // Finds the refit target and ensures building ships cannot be modified.
+  private findRefitShip(
+    playerId: ReturnType<typeof asPlayerId>,
+    playerSave: PlayerSave,
+    message: SubmitShipDesignMessage,
+    now: number
+  ): StoredShip | null {
+    if (!message.shipId) {
+      this.queueActionFeedback(playerId, "ship_design_missing_ship", "Design Blocked", "Select a ship before applying a refit.", "warning", now);
+      return null;
+    }
+    const ship = playerSave.shipStable[message.shipId];
+    if (!ship) {
+      this.queueActionFeedback(playerId, "ship_design_missing_ship", "Design Blocked", "That ship is no longer in your stable.", "warning", now);
+      return null;
+    }
+    if (ship.status === "building") {
+      this.queueActionFeedback(playerId, "ship_design_ship_building", "Design Blocked", "Ships under construction cannot be refit yet.", "warning", now);
+      return null;
+    }
+    if (ship.hullId !== message.hullId) {
+      this.queueActionFeedback(playerId, "ship_design_hull_mismatch", "Design Blocked", "The selected ship does not match that hull.", "warning", now);
+      return null;
+    }
+    return ship;
+  }
+
+  // Validates hardpoint/module compatibility and computes crafted-module/resource consumption.
+  private prepareSubmittedModules(
+    playerId: ReturnType<typeof asPlayerId>,
+    playerSave: PlayerSave,
+    targetShip: StoredShip | null,
+    hull: ReturnType<typeof getHullDefinition>,
+    submittedModules: SubmitShipDesignMessage["modules"],
+    now: number
+  ): { installedModules: InstalledModule[]; availableModules: Map<string, number>; craftCost: ResourceMap } | null {
+    const hardpointsById = new Map(hull.hardpoints.map((hardpoint) => [hardpoint.id, hardpoint]));
+    const seenHardpoints = new Set<string>();
+    const availableModules = new Map(playerSave.craftedModules.map((entry) => [entry.moduleId, entry.quantity]));
+    for (const installed of targetShip?.modules ?? []) {
+      availableModules.set(installed.moduleId, (availableModules.get(installed.moduleId) ?? 0) + 1);
+    }
+
+    let craftCost: ResourceMap = {};
+    const installedModules: InstalledModule[] = [];
+
+    for (const submitted of submittedModules) {
+      if (seenHardpoints.has(submitted.hardpointId)) {
+        this.queueActionFeedback(playerId, "ship_design_duplicate_hardpoint", "Design Blocked", "A mount point can only hold one module.", "warning", now);
+        return null;
+      }
+      seenHardpoints.add(submitted.hardpointId);
+
+      const hardpoint = hardpointsById.get(submitted.hardpointId);
+      const moduleDefinition = moduleDefinitions.find((entry) => entry.id === submitted.moduleId);
+      if (!hardpoint || !moduleDefinition) {
+        this.queueActionFeedback(playerId, "ship_design_invalid_mount", "Design Blocked", "One of the selected mount options is no longer valid.", "warning", now);
+        return null;
+      }
+      if (hardpoint.type !== moduleDefinition.slotType) {
+        this.queueActionFeedback(playerId, "ship_design_incompatible_module", "Design Blocked", "A selected module does not fit that mount point.", "warning", now);
+        return null;
+      }
+
+      const ownedCount = availableModules.get(moduleDefinition.id) ?? 0;
+      if (ownedCount > 0) {
+        availableModules.set(moduleDefinition.id, ownedCount - 1);
+      } else {
+        craftCost = addResourceMaps(craftCost, moduleDefinition.buildCost);
+      }
+
+      installedModules.push({
+        moduleId: moduleDefinition.id,
+        hardpointId: hardpoint.id,
+        currentHealth: moduleDefinition.maxHealth
+      });
+    }
+
+    return { installedModules, availableModules, craftCost };
+  }
+
+  // Converts an internal availability map back into the persistence stack array shape.
+  private toCraftedModuleStacks(modules: Map<string, number>): PlayerSave["craftedModules"] {
+    return Array.from(modules.entries())
+      .map(([moduleId, quantity]) => ({ moduleId, quantity }))
+      .filter((entry) => entry.quantity > 0);
   }
 
   // Hydrates the saved player record with connected runtime ship, inventory, position, and terrain memory.

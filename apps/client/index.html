@@ -62,11 +62,11 @@
         position: fixed;
         right: 16px;
         top: 16px;
-        width: 360px;
+        width: min(560px, calc(100vw - 32px));
         max-height: calc(100vh - 32px);
         overflow: auto;
         padding: 14px;
-        border-radius: 18px;
+        border-radius: 8px;
         border: 1px solid rgba(111, 234, 208, 0.25);
         background: rgba(10, 18, 22, 0.78);
         display: none;
@@ -138,7 +138,7 @@
 
       button {
         border: 0;
-        border-radius: 999px;
+        border-radius: 8px;
         padding: 10px 14px;
         margin: 0 8px 8px 0;
         background: linear-gradient(135deg, #49c6ff, #73f3ca);
@@ -164,8 +164,27 @@
       .ship-card {
         margin-top: 10px;
         padding: 10px;
-        border-radius: 14px;
+        border-radius: 8px;
         background: rgba(255, 255, 255, 0.04);
+      }
+
+      .builder-workstation {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .builder-mode-row,
+      .builder-selector {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .builder-selector strong {
+        min-width: 150px;
+        color: #e9f2ff;
       }
 
       .ship-card-header {

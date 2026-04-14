@@ -16,6 +16,22 @@ describe("network schemas", () => {
     expect(parsed.type).toBe("moveInput");
   });
 
+  it("validates submitted ship design builder actions", () => {
+    const parsed = clientMessageSchema.parse({
+      type: "builderAction",
+      action: "submitShipDesign",
+      mode: "new",
+      hullId: "sparrow-scout",
+      modules: [{ hardpointId: "weapon-front", moduleId: "pulse-cannon" }]
+    });
+
+    expect(parsed.type).toBe("builderAction");
+    if (parsed.type !== "builderAction") {
+      throw new Error("Expected builder action.");
+    }
+    expect(parsed.action).toBe("submitShipDesign");
+  });
+
   it("builds a compact snapshot payload", () => {
     const snapshot = createSnapshotMessage(
       12,
@@ -86,5 +102,3 @@ describe("network schemas", () => {
     expect(snapshot.selfModules).toHaveLength(0);
   });
 });
-
-
