@@ -137,7 +137,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
         cellIndex: index,
         cellType: cell
       });
-      const sprite = new Sprite(getTerrainTexture(variant));
+      const sprite = new Sprite(getTerrainTexture(cell, variant));
       sprite.position.set(x - terrainSpriteInset, y - terrainSpriteInset);
       sprite.width = terrainSpriteSize;
       sprite.height = terrainSpriteSize;

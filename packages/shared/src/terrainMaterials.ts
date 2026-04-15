@@ -70,7 +70,6 @@ export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
     breakDamage: 24,
     debrisResources: { ferrite: 2 },
     renderAlpha: 0.95,
-    tint: 0xb5c0ce,
     rememberedTint: 0x8b96a4,
     burstTint: 0xbfc9d8
   },
@@ -82,7 +81,6 @@ export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
     breakDamage: 30,
     debrisResources: { "plasma-crystal": 1 },
     renderAlpha: 0.95,
-    tint: 0xc4d7e6,
     rememberedTint: 0x8fa3b2,
     burstTint: 0x9ad7ff
   },
@@ -94,7 +92,6 @@ export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
     breakDamage: 36,
     debrisResources: { stone: 2 },
     renderAlpha: 0.95,
-    tint: 0x9fb7b1,
     rememberedTint: 0x73827f,
     burstTint: 0xb8cac5
   },
@@ -107,7 +104,6 @@ export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
     debrisResources: { "plasma-crystal": 2 },
     explosionRadiusTiles: 1,
     renderAlpha: 0.95,
-    tint: 0x8ff6ff,
     rememberedTint: 0x689aa3,
     burstTint: 0x72f5ff
   }

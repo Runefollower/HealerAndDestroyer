@@ -13,6 +13,7 @@
                     "build:client":  "npm run build --workspace @healer/client",
                     "dev:server":  "npm run dev --workspace @healer/server",
                     "dev:client":  "npm run dev --workspace @healer/client",
+                    "generate:terrain":  "node scripts/generate-terrain-rock-sprites.mjs",
                     "generate:terrain-rock":  "node scripts/generate-terrain-rock-sprites.mjs",
                     "render:terrain-rock-preview":  "node scripts/render-terrain-rock-preview.mjs",
                     "preview:terrain-rock":  "npm run generate:terrain-rock \u0026\u0026 npm run render:terrain-rock-preview",
