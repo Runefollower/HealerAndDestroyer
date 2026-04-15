@@ -1,4 +1,12 @@
-import { TERRAIN_CELL_TYPES, asEntityId, getTerrainMaterialDefinition, isEmptyTerrainCell, type ActiveMapState, type ResourceMap } from "@healer/shared";
+import {
+  TERRAIN_CELL_TYPES,
+  addResourceMaps,
+  asEntityId,
+  getTerrainMaterialDefinition,
+  isEmptyTerrainCell,
+  type ActiveMapState,
+  type ResourceMap
+} from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
 
 // TILE_SIZE converts between pixel/world coordinates and persisted terrain cells.
@@ -79,9 +87,13 @@ export function damageTerrainAt(
   }
 
   // Clear the terrain cell, mark the chunk for persistence, and spawn deterministic-ish debris id data.
+  const material = getTerrainMaterialDefinition(currentValue);
   chunk.cells[tile.cellIndex] = TERRAIN_CELL_TYPES.empty;
   chunk.dirty = true;
-  const resources = createTerrainDebrisResources(currentValue, yieldMultiplier);
+  let resources = createTerrainDebrisResources(currentValue, yieldMultiplier);
+  if (material.explosionRadiusTiles) {
+    resources = addResourceMaps(resources, destroyNearbyTerrain(map, tile, material.explosionRadiusTiles, yieldMultiplier));
+  }
   map.drops[`terrain-${tile.chunkKey}-${tile.cellIndex}-${tickCounter}`] = {
     id: asEntityId(`terrain-${tile.chunkKey}-${tile.cellIndex}-${tickCounter}`),
     mapId: map.id,
@@ -102,4 +114,51 @@ function createTerrainDebrisResources(cellValue: number, yieldMultiplier: number
   return Object.fromEntries(
     Object.entries(baseResources).map(([resourceId, amount]) => [resourceId, Math.max(1, Math.round(amount * yieldMultiplier))])
   );
+}
+
+// Clears solid terrain around volatile materials and returns the combined debris payout.
+function destroyNearbyTerrain(map: ActiveMapState, origin: TileAddress, radiusTiles: number, yieldMultiplier: number): ResourceMap {
+  let resources: ResourceMap = {};
+  for (let tileY = origin.tileY - radiusTiles; tileY <= origin.tileY + radiusTiles; tileY += 1) {
+    for (let tileX = origin.tileX - radiusTiles; tileX <= origin.tileX + radiusTiles; tileX += 1) {
+      if (tileX === origin.tileX && tileY === origin.tileY) {
+        continue;
+      }
+      const tile = tileAddressFromTileCoordinates(tileX, tileY);
+      if (!tile) {
+        continue;
+      }
+      const chunk = map.chunks[tile.chunkKey];
+      if (!chunk) {
+        continue;
+      }
+      const cellValue = chunk.cells[tile.cellIndex] ?? TERRAIN_CELL_TYPES.empty;
+      if (isEmptyTerrainCell(cellValue)) {
+        continue;
+      }
+      chunk.cells[tile.cellIndex] = TERRAIN_CELL_TYPES.empty;
+      chunk.dirty = true;
+      resources = addResourceMaps(resources, createTerrainDebrisResources(cellValue, yieldMultiplier));
+    }
+  }
+  return resources;
+}
+
+// Converts absolute tile coordinates into a chunk/cell address without requiring world pixels.
+function tileAddressFromTileCoordinates(tileX: number, tileY: number): TileAddress | null {
+  if (tileX < 0 || tileY < 0) {
+    return null;
+  }
+  const chunkX = Math.floor(tileX / CHUNK_SIZE);
+  const chunkY = Math.floor(tileY / CHUNK_SIZE);
+  const localX = tileX % CHUNK_SIZE;
+  const localY = tileY % CHUNK_SIZE;
+  return {
+    tileX,
+    tileY,
+    chunkKey: `${chunkX},${chunkY}`,
+    chunkX,
+    chunkY,
+    cellIndex: localY * CHUNK_SIZE + localX
+  };
 }

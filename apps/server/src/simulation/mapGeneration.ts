@@ -7,9 +7,13 @@ export const CHUNK_SIZE = 8;
 export const GENERATED_TILE_SIZE = 32;
 
 // orePocketPlasmaChance controls how often generated mineable pockets use the richer plasma material.
-const orePocketPlasmaChance = 0.28;
+const orePocketPlasmaChance = 0.18;
+// orePocketAncientStoneChance controls the occasional tougher stone wall material near open space.
+const orePocketAncientStoneChance = 0.1;
 // orePocketPlacementChance controls how dense each generated pocket is around its chosen center.
 const orePocketPlacementChance = 0.65;
+// unstableCrystalSpacing controls how rare single volatile crystal cells are in generated maps.
+const unstableCrystalSpacing = 900;
 
 export interface GeneratedMapLayout {
   widthTiles: number;
@@ -43,7 +47,7 @@ export function generateCaveMapLayout(seed: string, widthInChunks: number, heigh
   const widthTiles = widthInChunks * CHUNK_SIZE;
   const heightTiles = heightInChunks * CHUNK_SIZE;
   const random = createSeededRandom(seed);
-  const cells = new Array<number>(widthTiles * heightTiles).fill(TERRAIN_CELL_TYPES.ferriteRock);
+  const cells = new Array<number>(widthTiles * heightTiles).fill(TERRAIN_CELL_TYPES.commonRock);
 
   // Required anchors are intentionally inset so ship collision radii have room around key locations.
   const spawnTile = { x: 3, y: 3 };
@@ -77,6 +81,7 @@ export function generateCaveMapLayout(seed: string, widthInChunks: number, heigh
 
   // Add mineable cover and resource pockets near the carved space without blocking required anchors.
   addOrePockets(cells, widthTiles, heightTiles, seed, [spawnTile, builderTile, foundryTile, sourceAnchor, destinationAnchor]);
+  addUnstableCrystals(cells, widthTiles, heightTiles, seed, [spawnTile, builderTile, foundryTile, sourceAnchor, destinationAnchor]);
 
   return {
     widthTiles,
@@ -172,7 +177,7 @@ function addOrePockets(cells: number[], widthTiles: number, heightTiles: number,
   for (let index = 0; index < pocketCount; index += 1) {
     const centerX = 2 + Math.floor(random() * Math.max(1, widthTiles - 4));
     const centerY = 2 + Math.floor(random() * Math.max(1, heightTiles - 4));
-    const material = random() < orePocketPlasmaChance ? TERRAIN_CELL_TYPES.plasmaRock : TERRAIN_CELL_TYPES.ferriteRock;
+    const material = chooseOrePocketMaterial(random());
 
     for (let tileY = centerY - 1; tileY <= centerY + 1; tileY += 1) {
       for (let tileX = centerX - 1; tileX <= centerX + 1; tileX += 1) {
@@ -188,6 +193,58 @@ function addOrePockets(cells: number[], widthTiles: number, heightTiles: number,
       }
     }
   }
+}
+
+// Chooses the material for a small wall pocket using simple first-pass resource weights.
+function chooseOrePocketMaterial(randomValue: number): number {
+  if (randomValue < orePocketPlasmaChance) {
+    return TERRAIN_CELL_TYPES.plasmaCrystal;
+  }
+  if (randomValue < orePocketPlasmaChance + orePocketAncientStoneChance) {
+    return TERRAIN_CELL_TYPES.ancientStone;
+  }
+  return TERRAIN_CELL_TYPES.ferriteOre;
+}
+
+// Places rare unstable crystal cells one at a time so they feel dangerous and discoverable.
+function addUnstableCrystals(cells: number[], widthTiles: number, heightTiles: number, seed: string, protectedTiles: TilePoint[]): void {
+  const random = createSeededRandom(`${seed}:unstable-crystal`);
+  const protectedKeys = new Set(protectedTiles.flatMap((tile) => nearbyKeys(tile, 5)));
+  const crystalCount = Math.max(1, Math.floor((widthTiles * heightTiles) / unstableCrystalSpacing));
+  let placed = 0;
+  let attempts = 0;
+
+  while (placed < crystalCount && attempts < crystalCount * 80) {
+    attempts += 1;
+    const tileX = 2 + Math.floor(random() * Math.max(1, widthTiles - 4));
+    const tileY = 2 + Math.floor(random() * Math.max(1, heightTiles - 4));
+    if (protectedKeys.has(createTileKey(tileX, tileY))) {
+      continue;
+    }
+    if (!hasOpenNeighbor(cells, widthTiles, heightTiles, tileX, tileY)) {
+      continue;
+    }
+    if (hasNearbyUnstableCrystal(cells, widthTiles, heightTiles, tileX, tileY)) {
+      continue;
+    }
+    cells[tileY * widthTiles + tileX] = TERRAIN_CELL_TYPES.unstableCrystal;
+    placed += 1;
+  }
+}
+
+// Prevents volatile crystal clusters; the first pass wants isolated explosive surprises.
+function hasNearbyUnstableCrystal(cells: number[], widthTiles: number, heightTiles: number, tileX: number, tileY: number): boolean {
+  for (let neighborY = tileY - 1; neighborY <= tileY + 1; neighborY += 1) {
+    for (let neighborX = tileX - 1; neighborX <= tileX + 1; neighborX += 1) {
+      if (neighborX < 0 || neighborY < 0 || neighborX >= widthTiles || neighborY >= heightTiles) {
+        continue;
+      }
+      if (cells[neighborY * widthTiles + neighborX] === TERRAIN_CELL_TYPES.unstableCrystal) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // Returns keys around a protected anchor so ore placement does not crowd required locations.
@@ -234,7 +291,7 @@ function toChunks(cells: number[], widthInChunks: number, heightInChunks: number
         for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
           const tileX = chunkX * CHUNK_SIZE + localX;
           const tileY = chunkY * CHUNK_SIZE + localY;
-          chunkCells.push(cells[tileY * widthTiles + tileX] ?? TERRAIN_CELL_TYPES.ferriteRock);
+          chunkCells.push(cells[tileY * widthTiles + tileX] ?? TERRAIN_CELL_TYPES.commonRock);
         }
       }
 

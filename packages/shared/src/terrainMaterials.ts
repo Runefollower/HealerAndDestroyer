@@ -1,11 +1,13 @@
 import type { ResourceMap } from "./resources.js";
 import type { CellType } from "./world.js";
 
+// TERRAIN_CELL_TYPES names the persisted tile values used by generated chunks.
+// 0 is always open space. 1-5 are solid materials with distinct drops and behavior.
 export const TERRAIN_CELL_TYPES = {
   empty: 0,
-  ferriteRock: 1,
-  plasmaRock: 2,
-  denseOre: 3,
+  commonRock: 1,
+  ferriteOre: 2,
+  plasmaCrystal: 3,
   ancientStone: 4,
   unstableCrystal: 5
 } as const satisfies Record<string, CellType>;
@@ -25,6 +27,8 @@ export interface TerrainMaterialDefinition {
   breakDamage: number;
   // debrisResources are spawned when this material is destroyed.
   debrisResources: ResourceMap;
+  // explosionRadiusTiles makes volatile blocks clear nearby solid terrain when destroyed.
+  explosionRadiusTiles?: number;
   // renderAlpha and tint values keep client rendering data close to the material rules.
   renderAlpha: number;
   tint?: number;
@@ -33,6 +37,8 @@ export interface TerrainMaterialDefinition {
 }
 
 // terrainMaterialDefinitions is the source of truth for persisted terrain ids and their behavior.
+// Keep this list readable: designers should be able to understand what each block is,
+// how hard it is to break, what it drops, and whether it has special behavior.
 export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
   {
     id: "empty",
@@ -46,39 +52,39 @@ export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
     burstTint: 0x000000
   },
   {
-    id: "ferriteRock",
-    cellType: TERRAIN_CELL_TYPES.ferriteRock,
-    name: "Ferrite Rock",
+    id: "commonRock",
+    cellType: TERRAIN_CELL_TYPES.commonRock,
+    name: "Common Rock",
     solid: true,
-    breakDamage: 20,
-    debrisResources: { ferrite: 2 },
+    breakDamage: 18,
+    debrisResources: { rock: 2 },
     renderAlpha: 0.99,
     rememberedTint: 0x7f8a95,
     burstTint: 0xb9a48a
   },
   {
-    id: "plasmaRock",
-    cellType: TERRAIN_CELL_TYPES.plasmaRock,
-    name: "Plasma-Bearing Rock",
+    id: "ferriteOre",
+    cellType: TERRAIN_CELL_TYPES.ferriteOre,
+    name: "Ferrite Ore",
+    solid: true,
+    breakDamage: 24,
+    debrisResources: { ferrite: 2 },
+    renderAlpha: 0.95,
+    tint: 0xb5c0ce,
+    rememberedTint: 0x8b96a4,
+    burstTint: 0xbfc9d8
+  },
+  {
+    id: "plasmaCrystal",
+    cellType: TERRAIN_CELL_TYPES.plasmaCrystal,
+    name: "Plasma Crystal Vein",
     solid: true,
     breakDamage: 30,
-    debrisResources: { ferrite: 1, "plasma-crystal": 1 },
+    debrisResources: { "plasma-crystal": 1 },
     renderAlpha: 0.95,
     tint: 0xc4d7e6,
     rememberedTint: 0x8fa3b2,
     burstTint: 0x9ad7ff
-  },
-  {
-    id: "denseOre",
-    cellType: TERRAIN_CELL_TYPES.denseOre,
-    name: "Dense Ore",
-    solid: true,
-    breakDamage: 36,
-    debrisResources: { ferrite: 1, "plasma-crystal": 1 },
-    renderAlpha: 0.95,
-    tint: 0xb7ccd8,
-    rememberedTint: 0x7f8a95,
-    burstTint: 0xc6d8e6
   },
   {
     id: "ancientStone",
@@ -86,23 +92,24 @@ export const terrainMaterialDefinitions: TerrainMaterialDefinition[] = [
     name: "Ancient Stone",
     solid: true,
     breakDamage: 36,
-    debrisResources: { ferrite: 1, "plasma-crystal": 1 },
+    debrisResources: { stone: 2 },
     renderAlpha: 0.95,
-    tint: 0xb7ccd8,
-    rememberedTint: 0x7f8a95,
-    burstTint: 0xc6d8e6
+    tint: 0x9fb7b1,
+    rememberedTint: 0x73827f,
+    burstTint: 0xb8cac5
   },
   {
     id: "unstableCrystal",
     cellType: TERRAIN_CELL_TYPES.unstableCrystal,
     name: "Unstable Crystal",
     solid: true,
-    breakDamage: 36,
-    debrisResources: { ferrite: 1, "plasma-crystal": 1 },
+    breakDamage: 12,
+    debrisResources: { "plasma-crystal": 2 },
+    explosionRadiusTiles: 1,
     renderAlpha: 0.95,
-    tint: 0xb7ccd8,
-    rememberedTint: 0x7f8a95,
-    burstTint: 0xc6d8e6
+    tint: 0x8ff6ff,
+    rememberedTint: 0x689aa3,
+    burstTint: 0x72f5ff
   }
 ];
 
@@ -111,7 +118,7 @@ const terrainMaterialsByCellType = new Map<number, TerrainMaterialDefinition>(
 );
 
 // fallbackTerrainMaterial preserves old/future unknown solid cells as mineable terrain.
-const fallbackTerrainMaterial = terrainMaterialsByCellType.get(TERRAIN_CELL_TYPES.denseOre)!;
+const fallbackTerrainMaterial = terrainMaterialsByCellType.get(TERRAIN_CELL_TYPES.commonRock)!;
 
 // Returns material data for a persisted cell, with a solid fallback for unknown future values.
 export function getTerrainMaterialDefinition(cellType: number): TerrainMaterialDefinition {

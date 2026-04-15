@@ -40,6 +40,7 @@ export function validateContent(): void {
     if (hull.hardpoints.length === 0) {
       throw new Error(`Hull ${hull.id} has no hardpoints.`);
     }
+    validateResourceMap(`Hull ${hull.id} build cost`, hull.buildCost);
   }
 
   for (const module of moduleDefinitions) {
@@ -59,9 +60,20 @@ export function validateContent(): void {
     if (module.capabilities.includes("support") && !module.support) {
       throw new Error(`Module ${module.id} is missing support config.`);
     }
+    validateResourceMap(`Module ${module.id} build cost`, module.buildCost);
   }
 
   if (enemyDefinitions.length < 2 || structureDefinitions.length < 1 || resourceDefinitions.length < 2 || weaponDefinitions.length < 1) {
     throw new Error("Content seed set is incomplete.");
+  }
+}
+
+// Ensures content costs only reference resources that exist in the resource catalog.
+function validateResourceMap(label: string, resources: Record<string, number>): void {
+  const definedResourceIds = new Set(resourceDefinitions.map((resource) => resource.id));
+  for (const resourceId of Object.keys(resources)) {
+    if (!definedResourceIds.has(resourceId)) {
+      throw new Error(`${label} references unknown resource ${resourceId}.`);
+    }
   }
 }

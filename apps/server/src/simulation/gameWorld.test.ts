@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { asPlayerId, distance } from "@healer/shared";
+import { TERRAIN_CELL_TYPES, asPlayerId, distance } from "@healer/shared";
 import { GameWorld } from "./gameWorld.js";
 import { getPlayerShipCollisionRadius, getStructureCollisionRadius, isPositionBlocked } from "./collision.js";
 
@@ -121,7 +121,7 @@ describe("GameWorld", () => {
     player.position = { x: 84, y: 16 };
     player.rotation = Math.PI;
     rootMap.chunks["0,0"].cells = Array(64).fill(0);
-    rootMap.chunks["0,0"].cells[0] = 1;
+    rootMap.chunks["0,0"].cells[0] = TERRAIN_CELL_TYPES.commonRock;
 
     const startingCell = rootMap.chunks["0,0"].cells[0];
     expect(startingCell).toBeGreaterThan(0);
@@ -142,7 +142,7 @@ describe("GameWorld", () => {
     expect(rootMap.chunks["0,0"].cells[0]).toBe(0);
     expect(Object.values(rootMap.drops)).toContainEqual(
       expect.objectContaining({
-        resources: expect.objectContaining({ ferrite: expect.any(Number) })
+        resources: expect.objectContaining({ rock: expect.any(Number) })
       })
     );
 
@@ -392,7 +392,7 @@ describe("GameWorld", () => {
     if (!save) {
       throw new Error("Expected player save.");
     }
-    save.resourceCounts = { ferrite: 0, "plasma-crystal": 0 };
+    save.resourceCounts = { rock: 0, ferrite: 0, "plasma-crystal": 0 };
     await world.persistence.players.savePlayer(save);
 
     const rootMap = world.runtime.maps["map-root"];
@@ -401,20 +401,20 @@ describe("GameWorld", () => {
     if (!builder) {
       throw new Error("Expected builder structure.");
     }
-    runtimePlayer.inventory = { ferrite: 0, "plasma-crystal": 0 };
+    runtimePlayer.inventory = { rock: 0, ferrite: 0, "plasma-crystal": 0 };
     runtimePlayer.position = { ...builder.position };
     rootMap.drops["test-drop"] = {
       id: "test-drop" as never,
       mapId: rootMap.id,
       position: { ...builder.position },
-      resources: { ferrite: 80, "plasma-crystal": 20 }
+      resources: { rock: 40, ferrite: 80, "plasma-crystal": 20 }
     };
 
     await world.tick();
 
     const refreshedSave = await world.persistence.players.getPlayer(world.worldId, playerId);
-    expect(runtimePlayer.inventory).toEqual({ ferrite: 80, "plasma-crystal": 20 });
-    expect(refreshedSave?.resourceCounts).toEqual({ ferrite: 80, "plasma-crystal": 20 });
+    expect(runtimePlayer.inventory).toEqual({ rock: 40, ferrite: 80, "plasma-crystal": 20 });
+    expect(refreshedSave?.resourceCounts).toEqual({ rock: 40, ferrite: 80, "plasma-crystal": 20 });
 
     const buildResponse = await world.handleMessage("player-1", {
       type: "builderAction",
@@ -429,8 +429,8 @@ describe("GameWorld", () => {
     expect(buildingShip?.ship.status).toBe("building");
 
     const spentSave = await world.persistence.players.getPlayer(world.worldId, playerId);
-    expect(spentSave?.resourceCounts).toEqual({ ferrite: 0, "plasma-crystal": 0 });
-    expect(rootMap.players["player-1"].inventory).toEqual({ ferrite: 0, "plasma-crystal": 0 });
+    expect(spentSave?.resourceCounts).toEqual({ rock: 0, ferrite: 0, "plasma-crystal": 0 });
+    expect(rootMap.players["player-1"].inventory).toEqual({ rock: 0, ferrite: 0, "plasma-crystal": 0 });
   });
 
   it("tracks ship build timers, emits completion updates, and allows support activation on a completed support ship", async () => {
@@ -443,7 +443,7 @@ describe("GameWorld", () => {
     if (!save) {
       throw new Error("Expected player save.");
     }
-    save.resourceCounts = { ferrite: 200, "plasma-crystal": 50 };
+    save.resourceCounts = { rock: 40, ferrite: 200, "plasma-crystal": 50 };
     await world.persistence.players.savePlayer(save);
 
     const rootMap = world.runtime.maps["map-root"];
@@ -451,7 +451,7 @@ describe("GameWorld", () => {
     if (!builder) {
       throw new Error("Expected builder structure.");
     }
-    rootMap.players["player-1"].inventory = { ferrite: 200, "plasma-crystal": 50 };
+    rootMap.players["player-1"].inventory = { rock: 40, ferrite: 200, "plasma-crystal": 50 };
     rootMap.players["player-1"].position = { ...builder.position };
 
     const buildResponse = await world.handleMessage("player-1", {
@@ -533,7 +533,7 @@ describe("GameWorld", () => {
     if (!save) {
       throw new Error("Expected player save.");
     }
-    save.resourceCounts = { ferrite: 200, "plasma-crystal": 50 };
+    save.resourceCounts = { rock: 40, ferrite: 200, "plasma-crystal": 50 };
     await world.persistence.players.savePlayer(save);
 
     const rootMap = world.runtime.maps["map-root"];
@@ -541,7 +541,7 @@ describe("GameWorld", () => {
     if (!builder) {
       throw new Error("Expected builder structure.");
     }
-    rootMap.players["player-1"].inventory = { ferrite: 200, "plasma-crystal": 50 };
+    rootMap.players["player-1"].inventory = { rock: 40, ferrite: 200, "plasma-crystal": 50 };
     rootMap.players["player-1"].position = { ...builder.position };
 
     const buildResponse = await world.handleMessage("player-1", {
@@ -558,7 +558,7 @@ describe("GameWorld", () => {
     const designedShip = buildResponse[0].ships.find((ship) => ship.ship.hullId === "warden-healer");
     expect(designedShip?.ship.status).toBe("building");
     expect(designedShip?.ship.modules).toEqual([{ moduleId: "repair-beam", hardpointId: "support-top", currentHealth: 20 }]);
-    expect(rootMap.players["player-1"].inventory).toEqual({ ferrite: 105, "plasma-crystal": 26 });
+    expect(rootMap.players["player-1"].inventory).toEqual({ rock: 0, ferrite: 105, "plasma-crystal": 26 });
   });
 
   it("refits the active ship immediately and returns removed modules to storage", async () => {
@@ -686,7 +686,7 @@ describe("GameWorld", () => {
     }
     player.position = { x: 48, y: 48 };
     player.velocity = { x: -720, y: 0 };
-    rootMap.chunks["0,0"].cells[8] = 1;
+    rootMap.chunks["0,0"].cells[8] = TERRAIN_CELL_TYPES.commonRock;
 
     await world.tick();
 
@@ -704,7 +704,7 @@ describe("GameWorld", () => {
     expect(rootMap.chunks["0,0"].cells[8]).toBe(0);
     expect(Object.values(rootMap.drops)).toContainEqual(
       expect.objectContaining({
-        resources: expect.objectContaining({ ferrite: expect.any(Number) })
+        resources: expect.objectContaining({ rock: expect.any(Number) })
       })
     );
 

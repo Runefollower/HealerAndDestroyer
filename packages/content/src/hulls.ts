@@ -8,7 +8,7 @@ export const hullDefinitions: HullDefinition[] = [
     baseHull: 100,
     mass: 40,
     powerCapacity: 60,
-    buildCost: { ferrite: 0 },
+    buildCost: { rock: 0, ferrite: 0 },
     buildTimeMs: 0,
     hardpoints: [
       { id: "weapon-front", type: "weapon", localPosition: { x: 12, y: 0 }, orientation: "east" },
@@ -23,7 +23,7 @@ export const hullDefinitions: HullDefinition[] = [
     baseHull: 130,
     mass: 55,
     powerCapacity: 85,
-    buildCost: { ferrite: 80, "plasma-crystal": 20 },
+    buildCost: { rock: 40, ferrite: 80, "plasma-crystal": 20 },
     buildTimeMs: 45000,
     hardpoints: [
       { id: "support-top", type: "support", localPosition: { x: 0, y: -10 }, orientation: "north" },
@@ -34,7 +34,6 @@ export const hullDefinitions: HullDefinition[] = [
     ]
   }
 ];
-
 
 
 

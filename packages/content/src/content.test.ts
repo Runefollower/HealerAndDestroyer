@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getHullDefinition, validateContent } from "./index.js";
 import { moduleDefinitions } from "./modules.js";
+import { resourceDefinitions } from "./resources.js";
 
 describe("content package", () => {
   it("contains valid starter content", () => {
@@ -14,5 +15,9 @@ describe("content package", () => {
     );
 
     expect(compatibleModules.length).toBeGreaterThan(0);
+  });
+
+  it("defines the first-pass terrain resource economy", () => {
+    expect(resourceDefinitions.map((resource) => resource.id)).toEqual(["rock", "stone", "ferrite", "plasma-crystal"]);
   });
 });

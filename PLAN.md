@@ -106,8 +106,14 @@ The following major milestones are already implemented in the current prototype 
 18. Terrain material definitions and behavior centralization
 - terrain cell ids, solidity, break damage, debris resources, and client render styling now live in one shared material registry
 - server terrain mining/destruction, collision, visibility, map generation, and client rendering now read terrain behavior from shared helpers instead of duplicating `0`, `1`, and `2` material assumptions
-- current active generated materials remain open space, ferrite rock, and plasma-bearing rock, with reserved material slots defined for later richer ore/biome work
+- current active generated materials are open space, common rock, ferrite ore, plasma crystal veins, ancient stone, and rare unstable crystal
 - tests now cover the shared terrain material registry and map generation uses named material constants
+
+19. Ship design workstation
+- the builder-site popup now supports new-ship design and existing-ship refit modes
+- players can cycle hulls/ships, cycle hardpoint mounts, cycle compatible modules, preview costs/stats, and submit a complete loadout
+- server validation accepts `submitShipDesign`, rejects invalid mounts/resources, persists the resulting stable ship design, and syncs active refits into runtime immediately
+- tests cover new ship design, active refit behavior, and invalid hardpoint/module submissions
 
 ## Summary
 
@@ -119,10 +125,9 @@ The priority for the next phase is:
 2. harden procedural generation with validation, explicit map archetypes, safer placement, and better resource/encounter distribution
 3. start the persistent world-graph expansion path so discovered connections can generate and persist additional finite maps beyond the fixed root/deeper pair
 4. add encounter and objective variety around enemy infrastructure, defensive pockets, and foundry-adjacent pressure
-5. build out the ship-design workstation flow so players can select hulls and assign weapons/modules onto visible mount points at valid ship-building locations
-6. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression
-7. add exploration information tools such as minimap/fog summaries or scanner-style discovery only after the world/resource loop has enough content to reveal
-8. continue client performance hardening only where playtesting shows spikes, with chunk/display caching as the next rendering optimization if viewport culling is not enough
+5. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression
+6. add exploration information tools such as minimap/fog summaries or scanner-style discovery only after the world/resource loop has enough content to reveal
+7. continue client performance hardening only where playtesting shows spikes, with chunk/display caching as the next rendering optimization if viewport culling is not enough
 
 ## Key Changes
 
@@ -304,20 +309,27 @@ Next implementation target, only if playtesting still shows periodic drops:
 
 ### 7. Terrain material and resource economy expansion
 
-Status: shared material registry complete; content expansion next.
+Status: first resource expansion complete; tuning and content use next.
 
 - the current code now has a single shared source of truth for terrain cell ids, solidity, break damage, drops, and render treatment
 - the GDD calls for common environment blocks, specialized ore blocks, weapon-vs-mining extraction differences, and early/advanced resource tiers
-- the next implementation pass should extend the current placeholder `ferrite` and `plasma-crystal` model toward a more intentional material ladder
+- the first pass now has rock, stone, ferrite, and plasma-crystal resources tied to clear terrain materials
+- unstable crystal remains a rare generated block that detonates and destroys nearby terrain when broken
+
+Completed implementation target:
+
+- decide the first playable resource set, likely starting with a small subset of the GDD list rather than all proposed materials at once: complete
+- map terrain materials to concrete drops such as common rock/ferrite plus at least one or two ore types: complete
+- update module and hull costs so the new materials have immediate gameplay purpose: first pass complete
+- keep weapon destruction viable but less efficient than mining modules through existing `yieldMultiplier` rules: complete
+- add generation controls for ore rarity, pocket size, and map/archetype-specific resource distribution: first pass complete
+- add tests for each material's break damage, debris resources, and generated-map distribution expectations: first pass complete
 
 Next implementation target:
 
-- decide the first playable resource set, likely starting with a small subset of the GDD list rather than all proposed materials at once
-- map terrain materials to concrete drops such as common rock/ferrite plus at least one or two ore types
-- update module and hull costs so the new materials have immediate gameplay purpose
-- keep weapon destruction viable but less efficient than mining modules through existing `yieldMultiplier` rules
-- add generation controls for ore rarity, pocket size, and map/archetype-specific resource distribution
-- add tests for each material's break damage, debris resources, and generated-map distribution expectations
+- tune ore rarity and resource pacing through playtesting
+- add resource-specific UI/readability improvements for rock, stone, ferrite, and plasma drops
+- connect rarer materials to broader hull/module progression as the content catalog expands
 
 ### 8. Procedural generation hardening and world graph expansion
 
@@ -353,21 +365,24 @@ Next implementation target:
 
 ### 10. Ship design workstation and module content progression
 
-Status: builder/stable mechanics and module-gated actions complete; full ship-design UI next.
+Status: ship design workstation complete; content breadth next.
 
 - the GDD's immediate next steps call for turning hulls and module families into concrete data tables with costs, weights, power use, health, and build times
 - the current prototype has enough builder and module plumbing that adding new archetype content should now produce visible gameplay differences
-- the current builder flow can construct ships and install modules, but it still needs a clearer ship-design screen where players choose a hull and place weapons/modules onto the hull's available mount points
+- the builder flow now includes a clearer ship-design screen where players choose a hull and place weapons/modules onto the hull's available mount points
 - ship creation and modification should happen at valid ship-building locations; if we keep calling this interaction a foundry in gameplay, it should remain distinct in code/design from enemy production foundries
+
+Completed implementation target:
+
+- design a dedicated ship-configuration screen with hull selection, current stable ships, selected hull preview, mount-point list, and available module inventory: complete
+- show each hull's hardpoints/mount points with type and orientation, then allow compatible weapons, mining tools, support tools, engines, and other modules to be assigned to those points: complete
+- validate mount compatibility, resource costs, power use, mass, hardpoint occupancy, and build timing before the server accepts a design: complete
+- preview the resulting ship stats and role tradeoffs before the player commits: complete for first pass
+- persist the resulting ship design as the stored ship record and replicate the active design to the world renderer so visible hull/module parts match the chosen loadout: complete
+- modifying an existing ship is instant at the ship-building location for the current pass
 
 Next implementation target:
 
-- design a dedicated ship-configuration screen with hull selection, current stable ships, selected hull preview, mount-point list, and available module inventory
-- show each hull's hardpoints/mount points with type and orientation, then allow compatible weapons, mining tools, support tools, engines, and other modules to be assigned to those points
-- validate mount compatibility, resource costs, power use, mass, hardpoint occupancy, and build or modification timing before the server accepts a design
-- preview the resulting ship stats and role tradeoffs before the player commits: hull, mass, power use, available hardpoints, weapon arcs, cost, and build time
-- persist the resulting ship design as the stored ship record and replicate the active design to the world renderer so visible hull/module parts match the chosen loadout
-- decide whether modifying an existing ship is instant at the ship-building location, uses a short refit timer, or only requires timers for newly constructed hulls
 - add or tune first-pass hull/module data for the scout, healer, destroyer, miner, and heavy directions without over-expanding the roster
 - make material costs align with the new terrain/resource economy so exploration feeds ship choices
 - add tests for content validity, build costs, mount compatibility, module install rules, saved ship design persistence, and active-ship behavior across the expanded catalog

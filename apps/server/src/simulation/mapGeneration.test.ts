@@ -55,6 +55,16 @@ describe("map generation", () => {
 
     expect(mineableWallCount).toBeGreaterThan(20);
   });
+
+  it("places first-pass ore and rare volatile materials", () => {
+    const layout = generateCaveMapLayout("ore-variety-seed", 12, 9);
+    const cells = flattenCells(layout);
+
+    expect(cells).toContain(TERRAIN_CELL_TYPES.ferriteOre);
+    expect(cells).toContain(TERRAIN_CELL_TYPES.plasmaCrystal);
+    expect(cells).toContain(TERRAIN_CELL_TYPES.ancientStone);
+    expect(cells).toContain(TERRAIN_CELL_TYPES.unstableCrystal);
+  });
 });
 
 // Converts the generated chunk dictionary back into a flat row-major cell array for comparisons.
@@ -105,14 +115,14 @@ function hasOpenNeighbor(layout: GeneratedMapLayout, tileX: number, tileY: numbe
 // Reads one tile value from the generated chunk dictionary.
 function getCell(layout: GeneratedMapLayout, tileX: number, tileY: number): number {
   if (tileX < 0 || tileY < 0 || tileX >= layout.widthTiles || tileY >= layout.heightTiles) {
-    return TERRAIN_CELL_TYPES.ferriteRock;
+    return TERRAIN_CELL_TYPES.commonRock;
   }
 
   const chunkX = Math.floor(tileX / CHUNK_SIZE);
   const chunkY = Math.floor(tileY / CHUNK_SIZE);
   const localX = tileX % CHUNK_SIZE;
   const localY = tileY % CHUNK_SIZE;
-  return layout.chunks[`${chunkX},${chunkY}`]?.cells[localY * CHUNK_SIZE + localX] ?? TERRAIN_CELL_TYPES.ferriteRock;
+  return layout.chunks[`${chunkX},${chunkY}`]?.cells[localY * CHUNK_SIZE + localX] ?? TERRAIN_CELL_TYPES.commonRock;
 }
 
 // Converts world-space positions back to tile coordinates for anchor validation.

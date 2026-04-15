@@ -10,7 +10,7 @@ export const moduleDefinitions: ModuleDefinition[] = [
     powerUse: 4,
     maxHealth: 30,
     rarity: "basic",
-    buildCost: { ferrite: 8 },
+    buildCost: { rock: 8 },
     craftTimeMs: 0
   },
   {
@@ -37,7 +37,7 @@ export const moduleDefinitions: ModuleDefinition[] = [
     powerUse: 6,
     maxHealth: 20,
     rarity: "basic",
-    buildCost: { ferrite: 12 },
+    buildCost: { rock: 8, ferrite: 4 },
     craftTimeMs: 0,
     mining: {
       range: 96,
@@ -73,7 +73,7 @@ export const moduleDefinitions: ModuleDefinition[] = [
     powerUse: 0,
     maxHealth: 36,
     rarity: "basic",
-    buildCost: { ferrite: 18 },
+    buildCost: { stone: 6, ferrite: 12 },
     craftTimeMs: 0
   }
 ];

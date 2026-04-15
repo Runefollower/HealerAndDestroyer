@@ -182,7 +182,7 @@ export function createDefaultPlayerSave(worldId: string, playerId: string): Play
   return {
     playerId: asPlayerId(playerId),
     worldId: asWorldId(worldId),
-    resourceCounts: { ferrite: 25, "plasma-crystal": 5 },
+    resourceCounts: { rock: 40, ferrite: 25, "plasma-crystal": 5 },
     craftedModules: [],
     shipStable: {
       [shipId]: {
