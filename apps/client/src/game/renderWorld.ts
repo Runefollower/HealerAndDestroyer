@@ -1,4 +1,4 @@
-import { getTerrainMaterialDefinition, isEmptyTerrainCell, selectTerrainVariant, type ProjectileSnapshot, type SnapshotMessage } from "@healer/shared";
+import { getTerrainMaterialDefinition, isEmptyTerrainCell, selectTerrainVariant, type PlayerSnapshot, type ProjectileSnapshot, type SnapshotMessage } from "@healer/shared";
 import { Container, Graphics, Sprite, Text, type Container as PixiContainer } from "pixi.js";
 import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
@@ -17,9 +17,14 @@ const projectileHistoryTtlMs = 1_500;
 // Terrain bursts are short-lived effects emitted when a previously visible cell disappears.
 const terrainBurstLifetimeMs = 420;
 const maxTerrainBursts = 24;
+// Engine exhaust particles trail from thrusting ships and are retained between redraws.
+const exhaustParticleLifetimeMs = 520;
+const maxExhaustParticles = 120;
+const minimumExhaustForwardSpeed = 10;
 // previousTerrainSnapshot tracks visible terrain cells from the prior render for destruction effects.
 let previousTerrainSnapshot: { mapId: string; cells: Map<string, TerrainCellRecord> } | null = null;
 const terrainBursts: TerrainBurst[] = [];
+const exhaustParticles: ExhaustParticle[] = [];
 
 export interface WorldViewport {
   // x/y are the top-left world coordinates currently visible through the camera.
@@ -28,6 +33,11 @@ export interface WorldViewport {
   // width/height are the current screen dimensions in pixels.
   width: number;
   height: number;
+}
+
+export interface WorldRenderEffects {
+  // selfThrustForward is local-only input, so only the current player's ship can use it exactly.
+  selfThrustForward?: boolean;
 }
 
 interface TerrainCellRecord {
@@ -48,6 +58,20 @@ interface TerrainBurst {
   seed: number;
   // tint is derived from the destroyed terrain material.
   tint: number;
+}
+
+interface ExhaustParticle {
+  // x/y are the current world-space particle origin.
+  x: number;
+  y: number;
+  // velocity moves particles away from the engine between server snapshots.
+  velocity: { x: number; y: number };
+  // createdAt is a performance timestamp used to grow and fade the particle.
+  createdAt: number;
+  // seed controls deterministic flicker, size, and color selection.
+  seed: number;
+  // intensity reflects how strongly the ship is moving along its facing direction.
+  intensity: number;
 }
 
 export interface HudSelections {
@@ -106,7 +130,7 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
 }
 
 // Redraws the visible Pixi world layer from one server snapshot.
-export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage, viewport: WorldViewport): void {
+export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage, viewport: WorldViewport, effects: WorldRenderEffects = {}): void {
   // Transient visual state is updated before clearing the layer for a fresh snapshot render.
   const now = typeof performance !== "undefined" ? performance.now() : Date.now();
   const paddedViewport = padViewport(viewport, viewportPadding);
@@ -114,6 +138,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   const terrainCells = buildTerrainCellMap(snapshot, paddedViewport);
   spawnTerrainBursts(snapshot.mapId, terrainCells, now);
   pruneTerrainBursts(now);
+  pruneExhaustParticles(now);
   clearWorldLayer(worldLayer);
 
   // Draw visible and remembered terrain cells before entities.
@@ -223,6 +248,21 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       y: projectile.position.y,
       seenAt: now
     });
+  }
+
+  for (const player of snapshot.players) {
+    if (!isPointInViewport(player.position.x, player.position.y, paddedViewport)) {
+      continue;
+    }
+    spawnEngineExhaust(player, now, player.playerId === snapshot.selfPlayerId && effects.selfThrustForward === true);
+  }
+
+  // Exhaust sits below the ship art so hulls and engine sprites remain crisp.
+  for (const particle of exhaustParticles) {
+    if (!isPointInViewport(particle.x, particle.y, paddedViewport)) {
+      continue;
+    }
+    worldLayer.addChild(createEngineExhaustParticle(particle, now));
   }
 
   for (const player of snapshot.players) {
@@ -350,6 +390,22 @@ function pruneTerrainBursts(now: number): void {
   terrainBursts.push(...nextBursts.slice(-maxTerrainBursts));
 }
 
+// Removes old exhaust particles and advances surviving particles between authoritative snapshots.
+function pruneExhaustParticles(now: number): void {
+  const nextParticles = exhaustParticles.filter((particle) => {
+    if (now - particle.createdAt > exhaustParticleLifetimeMs) {
+      return false;
+    }
+    particle.x += particle.velocity.x * (1 / 60);
+    particle.y += particle.velocity.y * (1 / 60);
+    particle.velocity.x *= 0.985;
+    particle.velocity.y *= 0.985;
+    return true;
+  });
+  exhaustParticles.length = 0;
+  exhaustParticles.push(...nextParticles.slice(-maxExhaustParticles));
+}
+
 // Chooses burst tint by terrain material value.
 function terrainBurstTint(cellValue: number): number {
   return getTerrainMaterialDefinition(cellValue).burstTint;
@@ -386,6 +442,84 @@ function createTerrainBurstEffect(burst: TerrainBurst, now: number): Container {
   }
 
   return container;
+}
+
+// Emits a small plume behind ships that are moving forward along their facing direction.
+function spawnEngineExhaust(player: PlayerSnapshot, now: number, forceForwardThrust = false): void {
+  if (!hasEngineModule(player)) {
+    return;
+  }
+
+  const facing = {
+    x: Math.cos(player.rotation),
+    y: Math.sin(player.rotation)
+  };
+  const inferredForwardSpeed = player.velocity.x * facing.x + player.velocity.y * facing.y;
+  const forwardSpeed = forceForwardThrust ? Math.max(inferredForwardSpeed, 42) : inferredForwardSpeed;
+  if (forwardSpeed < minimumExhaustForwardSpeed) {
+    return;
+  }
+
+  const speedIntensity = Math.min(1, forwardSpeed / 85);
+  const seed = hashString(`${player.id}:${Math.floor(now / 40)}:${Math.round(player.position.x)}:${Math.round(player.position.y)}`);
+  const particleCount = 1 + Math.floor(speedIntensity * 2);
+  const side = { x: -facing.y, y: facing.x };
+
+  for (let index = 0; index < particleCount; index += 1) {
+    const particleSeed = seed + index * 97;
+    const jitter = randomSigned(particleSeed) * 5.5;
+    const rearDistance = 30 + randomUnit(particleSeed + 11) * 5;
+    const plumeSpeed = 34 + speedIntensity * 52 + randomUnit(particleSeed + 23) * 20;
+    const sideVelocity = randomSigned(particleSeed + 31) * (10 + speedIntensity * 12);
+
+    exhaustParticles.push({
+      x: player.position.x - facing.x * rearDistance + side.x * jitter,
+      y: player.position.y - facing.y * rearDistance + side.y * jitter,
+      velocity: {
+        x: -facing.x * plumeSpeed + side.x * sideVelocity + player.velocity.x * 0.08,
+        y: -facing.y * plumeSpeed + side.y * sideVelocity + player.velocity.y * 0.08
+      },
+      createdAt: now,
+      seed: particleSeed,
+      intensity: speedIntensity
+    });
+  }
+
+  if (exhaustParticles.length > maxExhaustParticles) {
+    exhaustParticles.splice(0, exhaustParticles.length - maxExhaustParticles);
+  }
+}
+
+// Creates one exhaust ember/smoke mote with a hot core that fades into blue vapor.
+function createEngineExhaustParticle(particle: ExhaustParticle, now: number): Container {
+  const age = Math.min(1, (now - particle.createdAt) / exhaustParticleLifetimeMs);
+  const fade = 1 - age;
+  const flicker = 0.5 + randomUnit(particle.seed + Math.floor(now / 35)) * 0.5;
+  const size = (2.8 + randomUnit(particle.seed + 7) * 2.2 + particle.intensity * 3.2) * (0.55 + age * 1.15);
+  const container = new Container();
+  container.position.set(particle.x, particle.y);
+
+  const smoke = new Graphics();
+  smoke.ellipse(0, 0, size * 1.9, size * 1.1).fill(age > 0.45 ? 0x6d7d8f : 0x258ad9);
+  smoke.alpha = (age > 0.45 ? 0.14 : 0.2) * fade * particle.intensity;
+  container.addChild(smoke);
+
+  const glow = new Graphics();
+  glow.circle(0, 0, size * 1.1).fill(0x28cfff);
+  glow.alpha = 0.18 * fade * flicker;
+  container.addChild(glow);
+
+  const core = new Graphics();
+  core.circle(0, 0, Math.max(1, size * 0.38)).fill(age < 0.35 ? 0xf8fbff : 0x82e9ff);
+  core.alpha = 0.72 * fade * flicker;
+  container.addChild(core);
+
+  return container;
+}
+
+// Checks for an installed engine without importing client-only visual catalog data.
+function hasEngineModule(player: PlayerSnapshot): boolean {
+  return player.modules.some((module) => module.hardpointId.toLowerCase().includes("engine") || module.moduleId.toLowerCase().includes("thruster"));
 }
 
 // Creates the Pixi projectile glow/trail effect from current and previous projectile positions.
@@ -445,6 +579,18 @@ function hashString(value: string): number {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   }
   return hash;
+}
+
+function randomUnit(seed: number): number {
+  let value = seed >>> 0;
+  value ^= value << 13;
+  value ^= value >>> 17;
+  value ^= value << 5;
+  return (value >>> 0) / 0xffffffff;
+}
+
+function randomSigned(seed: number): number {
+  return randomUnit(seed) * 2 - 1;
 }
 
 // Creates fog-of-war overlay geometry for remembered terrain cells.

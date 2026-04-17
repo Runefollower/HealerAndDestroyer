@@ -1,7 +1,7 @@
 import { getModuleDefinition } from "@healer/content";
 import { Application, Container } from "pixi.js";
 import type { InstalledModule, ServerMessage, SnapshotMessage } from "@healer/shared";
-import { attachInputListeners, createInputState } from "./input.js";
+import { attachInputListeners, createInputState, type InputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
 import { createShipDesignAction, refreshBuilderTimers, renderBuilderState, updateBuilderDraft } from "./renderBuilder.js";
 import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
@@ -153,7 +153,7 @@ export async function bootstrapClient(): Promise<void> {
 
   network.onServerMessage((message) => {
     // Some server messages refine the local server-time offset used by builder timers.
-    const nextOffset = handleServerMessage(network, builder, hud, notifications, worldLayer, store, message, clockOffsetMs, app.screen.width, app.screen.height);
+    const nextOffset = handleServerMessage(network, builder, hud, notifications, worldLayer, store, input, message, clockOffsetMs, app.screen.width, app.screen.height);
     if (typeof nextOffset === "number") {
       clockOffsetMs = nextOffset;
     }
@@ -275,6 +275,7 @@ function handleServerMessage(
   notifications: HTMLElement,
   worldLayer: Container,
   store: ClientStore,
+  input: InputState,
   message: ServerMessage,
   clockOffsetMs: number,
   screenWidth: number,
@@ -338,6 +339,8 @@ function handleServerMessage(
       y: -worldLayer.position.y,
       width: screenWidth,
       height: screenHeight
+    }, {
+      selfThrustForward: input.thrustForward
     });
     if (!message.builderSiteNearby) {
       // Moving away from the builder closes the local panel and clears its stale state.
