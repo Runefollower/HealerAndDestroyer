@@ -3,12 +3,49 @@ import { Application, Container } from "pixi.js";
 import type { InstalledModule, ServerMessage, SnapshotMessage } from "@healer/shared";
 import { attachInputListeners, createInputState, type InputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
+import { predictSnapshotForRender } from "./predictSnapshot.js";
 import { createShipDesignAction, refreshBuilderTimers, renderBuilderState, updateBuilderDraft } from "./renderBuilder.js";
-import { renderHud, renderWorld, type HudSelections } from "./renderWorld.js";
+import { renderHud, renderWorld, type HudSelections, type WorldRenderStats } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
 import { preloadPlayerShipTextures } from "./playerShipAssets.js";
 import { preloadTerrainTextures } from "./terrainAssets.js";
 import { preloadWorldEntityTextures } from "./worldEntityAssets.js";
+
+interface ClientDiagnostics {
+  // lastFrameTime stores the previous ticker timestamp for frame delta diagnostics.
+  lastFrameTime: number | null;
+  // frameMs and maxFrameMs show current and rolling hitch cost.
+  frameMs: number;
+  maxFrameMs: number;
+  // renderMs measures camera plus Pixi world render work for the latest frame.
+  renderMs: number;
+  // callbackMs measures this client's ticker callback work for the latest frame.
+  callbackMs: number;
+  // predictMs measures client snapshot prediction cost for the latest frame.
+  predictMs: number;
+  // snapshotAgeMs shows how stale the authoritative base snapshot is.
+  snapshotAgeMs: number;
+  // lastSnapshotTick identifies the current server snapshot base.
+  lastSnapshotTick: number | null;
+  // renderStats are returned by renderWorld and include layer/object counts.
+  renderStats: WorldRenderStats | null;
+  // lastHitch freezes diagnostics from the most recent long frame.
+  lastHitch: HitchDiagnostics | null;
+}
+
+interface HitchDiagnostics {
+  // capturedAt is a short local time string for the most recent hitch.
+  capturedAt: string;
+  frameMs: number;
+  callbackMs: number;
+  renderMs: number;
+  predictMs: number;
+  snapshotAgeMs: number;
+  lastSnapshotTick: number | null;
+  renderStats: WorldRenderStats | null;
+}
+
+const hitchFrameThresholdMs = 80;
 
 // Boots the Pixi client, wires DOM UI, connects to the server, and starts the frame loop.
 export async function bootstrapClient(): Promise<void> {
@@ -38,6 +75,7 @@ export async function bootstrapClient(): Promise<void> {
   let clockOffsetMs = 0;
   // frameTimes stores recent performance timestamps for the toggleable FPS overlay.
   const frameTimes: number[] = [];
+  const diagnostics: ClientDiagnostics = createClientDiagnostics();
 
   attachInputListeners(input);
   // Pointer position is converted to world space each frame after camera movement.
@@ -65,7 +103,7 @@ export async function bootstrapClient(): Promise<void> {
     if (event.key === "0") {
       // 0 toggles the local frame-rate overlay without involving the server.
       store.fpsVisible = !store.fpsVisible;
-      renderFrameRate(framerate, store.fpsVisible, frameTimes);
+      renderFrameRate(framerate, store.fpsVisible, frameTimes, diagnostics);
     }
   });
   hud.addEventListener("pointerdown", (event) => {
@@ -153,7 +191,7 @@ export async function bootstrapClient(): Promise<void> {
 
   network.onServerMessage((message) => {
     // Some server messages refine the local server-time offset used by builder timers.
-    const nextOffset = handleServerMessage(network, builder, hud, notifications, worldLayer, store, input, message, clockOffsetMs, app.screen.width, app.screen.height);
+    const nextOffset = handleServerMessage(network, builder, hud, notifications, store, diagnostics, message, clockOffsetMs);
     if (typeof nextOffset === "number") {
       clockOffsetMs = nextOffset;
     }
@@ -195,14 +233,15 @@ export async function bootstrapClient(): Promise<void> {
 
   app.ticker.add(() => {
     // Local ticker drives input submission, client-only UI timers, and opportunistic actions.
+    const callbackStart = performance.now();
     tick += 1;
     // Keep only the last two seconds of frame timestamps for a stable rolling FPS display.
     const frameTime = performance.now();
+    recordFrameTiming(diagnostics, frameTime);
     frameTimes.push(frameTime);
     while (frameTimes.length && frameTimes[0] < frameTime - 2000) {
       frameTimes.shift();
     }
-    renderFrameRate(framerate, store.fpsVisible, frameTimes);
 
     // Movement input is sent every frame so the server remains authoritative about motion.
     network.send({
@@ -216,8 +255,22 @@ export async function bootstrapClient(): Promise<void> {
 
     const snapshot = store.latestSnapshot;
     if (snapshot) {
+      const predictStart = performance.now();
+      const renderSnapshot = predictSnapshotForRender(snapshot, store.latestSnapshotReceivedAt, frameTime, input);
+      diagnostics.predictMs = performance.now() - predictStart;
       // Camera update must happen before screen-to-world targeting.
-      updateCamera(worldLayer, snapshot, app.screen.width, app.screen.height);
+      const renderStart = performance.now();
+      updateCamera(worldLayer, renderSnapshot, app.screen.width, app.screen.height);
+      diagnostics.renderStats = renderWorld(worldLayer, renderSnapshot, {
+        x: -worldLayer.position.x,
+        y: -worldLayer.position.y,
+        width: app.screen.width,
+        height: app.screen.height
+      }, {
+        selfThrustForward: input.thrustForward
+      });
+      diagnostics.renderMs = performance.now() - renderStart;
+      diagnostics.snapshotAgeMs = store.latestSnapshotReceivedAt === null ? 0 : Math.max(0, frameTime - store.latestSnapshotReceivedAt);
       const mouseWorld = screenToWorld(worldLayer, mouseScreen);
 
       // Actions are throttled client-side to reduce duplicate messages while controls are held.
@@ -252,6 +305,8 @@ export async function bootstrapClient(): Promise<void> {
       }
     }
 
+    renderFrameRate(framerate, store.fpsVisible, frameTimes, diagnostics);
+
     if (store.builderOpen && store.builderState && builder.classList.contains("visible")) {
       // Builder countdowns are refreshed locally between server builderState messages.
       refreshBuilderTimers(builder, store.builderState, clockOffsetMs);
@@ -264,6 +319,8 @@ export async function bootstrapClient(): Promise<void> {
       store.toasts = nextToasts;
     }
     renderToasts(notifications, store.toasts);
+    diagnostics.callbackMs = performance.now() - callbackStart;
+    captureHitchIfNeeded(diagnostics);
   });
 }
 
@@ -273,13 +330,10 @@ function handleServerMessage(
   builder: HTMLElement,
   hud: HTMLElement,
   notifications: HTMLElement,
-  worldLayer: Container,
   store: ClientStore,
-  input: InputState,
+  diagnostics: ClientDiagnostics,
   message: ServerMessage,
-  clockOffsetMs: number,
-  screenWidth: number,
-  screenHeight: number
+  clockOffsetMs: number
 ): number | undefined {
   if (message.type === "builderState") {
     // builderState is authoritative and also provides a server timestamp for countdown correction.
@@ -331,17 +385,10 @@ function handleServerMessage(
   if (message.type === "snapshot") {
     // Snapshot is the main world/HUD update path and refreshes module selection validity.
     store.latestSnapshot = message;
+    store.latestSnapshotReceivedAt = performance.now();
+    diagnostics.lastSnapshotTick = message.tick;
     reconcileSelectedModules(store, message.selfModules);
     renderHudForStore(hud, store);
-    updateCamera(worldLayer, message, screenWidth, screenHeight);
-    renderWorld(worldLayer, message, {
-      x: -worldLayer.position.x,
-      y: -worldLayer.position.y,
-      width: screenWidth,
-      height: screenHeight
-    }, {
-      selfThrustForward: input.thrustForward
-    });
     if (!message.builderSiteNearby) {
       // Moving away from the builder closes the local panel and clears its stale state.
       store.builderOpen = false;
@@ -379,6 +426,46 @@ function syncBuilderVisibility(builder: HTMLElement, store: ClientStore): void {
   }
 }
 
+function createClientDiagnostics(): ClientDiagnostics {
+  return {
+    lastFrameTime: null,
+    frameMs: 0,
+    maxFrameMs: 0,
+    renderMs: 0,
+    callbackMs: 0,
+    predictMs: 0,
+    snapshotAgeMs: 0,
+    lastSnapshotTick: null,
+    renderStats: null,
+    lastHitch: null
+  };
+}
+
+function recordFrameTiming(diagnostics: ClientDiagnostics, frameTime: number): void {
+  if (diagnostics.lastFrameTime !== null) {
+    diagnostics.frameMs = frameTime - diagnostics.lastFrameTime;
+    diagnostics.maxFrameMs = Math.max(diagnostics.maxFrameMs * 0.985, diagnostics.frameMs);
+  }
+  diagnostics.lastFrameTime = frameTime;
+}
+
+function captureHitchIfNeeded(diagnostics: ClientDiagnostics): void {
+  if (diagnostics.frameMs < hitchFrameThresholdMs) {
+    return;
+  }
+
+  diagnostics.lastHitch = {
+    capturedAt: new Date().toLocaleTimeString(),
+    frameMs: diagnostics.frameMs,
+    callbackMs: diagnostics.callbackMs,
+    renderMs: diagnostics.renderMs,
+    predictMs: diagnostics.predictMs,
+    snapshotAgeMs: diagnostics.snapshotAgeMs,
+    lastSnapshotTick: diagnostics.lastSnapshotTick,
+    renderStats: diagnostics.renderStats
+  };
+}
+
 // Renders the current toast stack into the notifications container.
 function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
   container.innerHTML = toasts
@@ -394,7 +481,7 @@ function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
 }
 
 // Renders the rolling FPS overlay when the local toggle is enabled.
-function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: number[]): void {
+function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: number[], diagnostics?: ClientDiagnostics): void {
   container.classList.toggle("visible", visible);
   if (!visible) {
     return;
@@ -408,7 +495,41 @@ function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: n
       ? 0
       : Math.min(2, Math.max((lastFrameTime - firstFrameTime) / 1000, 0));
   const framesPerSecond = elapsedSeconds > 0 ? Math.max(frameTimes.length - 1, 0) / elapsedSeconds : 0;
-  container.textContent = `${Math.round(framesPerSecond)} FPS`;
+  if (!diagnostics) {
+    container.textContent = `${Math.round(framesPerSecond)} FPS`;
+    return;
+  }
+
+  const renderStats = diagnostics.renderStats;
+  container.textContent = [
+    `${Math.round(framesPerSecond)} FPS`,
+    `frame ${diagnostics.frameMs.toFixed(1)}ms max ${diagnostics.maxFrameMs.toFixed(1)}ms callback ${diagnostics.callbackMs.toFixed(1)}ms`,
+    `render ${diagnostics.renderMs.toFixed(1)}ms predict ${diagnostics.predictMs.toFixed(2)}ms`,
+    `snapshot age ${Math.round(diagnostics.snapshotAgeMs)}ms tick ${diagnostics.lastSnapshotTick ?? "-"}`,
+    renderStats
+      ? `dyn ${renderStats.dynamicObjects} terrain ${renderStats.terrainSprites} fog ${renderStats.fogObjects}`
+      : "dyn - terrain - fog -",
+    renderStats
+      ? `exhaust ${renderStats.exhaustParticles} bursts ${renderStats.terrainBursts} terrain rebuild ${renderStats.terrainRebuilt ? "yes" : "no"}`
+      : "exhaust - bursts - terrain rebuild -",
+    formatLastHitch(diagnostics.lastHitch)
+  ].join("\n");
+}
+
+function formatLastHitch(hitch: HitchDiagnostics | null): string {
+  if (!hitch) {
+    return `last hitch >${hitchFrameThresholdMs}ms: none`;
+  }
+
+  const stats = hitch.renderStats;
+  const counts = stats
+    ? `dyn ${stats.dynamicObjects} terrain ${stats.terrainSprites} exhaust ${stats.exhaustParticles} rebuild ${stats.terrainRebuilt ? "yes" : "no"}`
+    : "dyn - terrain - exhaust - rebuild -";
+  return [
+    `last hitch ${hitch.frameMs.toFixed(1)}ms at ${hitch.capturedAt}`,
+    `  callback ${hitch.callbackMs.toFixed(1)} render ${hitch.renderMs.toFixed(1)} predict ${hitch.predictMs.toFixed(2)} age ${Math.round(hitch.snapshotAgeMs)} tick ${hitch.lastSnapshotTick ?? "-"}`,
+    `  ${counts}`
+  ].join("\n");
 }
 
 // Renders the HUD only when a snapshot is available.

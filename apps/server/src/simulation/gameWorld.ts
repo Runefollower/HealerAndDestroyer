@@ -6,11 +6,13 @@ import {
   asPlayerId,
   asShipId,
   asWorldId,
+  applyPlayerMovementInput,
   clientMessageSchema,
   createSnapshotMessage,
   distance,
   hasEnoughResources,
   normalize,
+  PLAYER_VELOCITY_RETENTION,
   scaleVec2,
   subtractResourceMaps,
   type ActivateModuleMessage,
@@ -50,12 +52,6 @@ interface PlayerSessionState {
 }
 
 const logger = createLogger("gameWorld");
-// Rotation and thrust constants tune the prototype ship movement model.
-const rotationStep = 0.1;
-const forwardThrust = 80;
-const reverseThrust = 40;
-// Velocity retention controls drag; 0.96 roughly doubles sustained player speed versus 0.92 while leaving thrust input unchanged.
-const playerVelocityRetention = 0.96;
 type SubmitShipDesignMessage = Extract<BuilderActionMessage, { action: "submitShipDesign" }>;
 
 export class GameWorld {
@@ -291,8 +287,8 @@ export class GameWorld {
       });
       player.position = resolved.position;
       player.velocity = resolved.velocity;
-      player.velocity.x *= playerVelocityRetention;
-      player.velocity.y *= playerVelocityRetention;
+      player.velocity.x *= PLAYER_VELOCITY_RETENTION;
+      player.velocity.y *= PLAYER_VELOCITY_RETENTION;
     }
   }
 
@@ -450,25 +446,7 @@ export class GameWorld {
 
   // Applies raw movement input by rotating the ship and adding thrust along its current facing.
   private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean }): void {
-    if (input.rotateLeft) {
-      player.rotation -= rotationStep;
-    }
-    if (input.rotateRight) {
-      player.rotation += rotationStep;
-    }
-
-    // Thrust is integrated at the prototype target tick rate to keep input handling simple.
-    const thrust = input.thrustForward ? forwardThrust : input.thrustReverse ? -reverseThrust : 0;
-    if (thrust === 0) {
-      return;
-    }
-
-    const forward = {
-      x: Math.cos(player.rotation),
-      y: Math.sin(player.rotation)
-    };
-    player.velocity.x += forward.x * thrust * (1 / 30);
-    player.velocity.y += forward.y * thrust * (1 / 30);
+    applyPlayerMovementInput(player, input);
   }
 
   // Handles weapon fire and queues feedback for non-cooldown failures.

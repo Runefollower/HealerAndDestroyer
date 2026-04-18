@@ -31,6 +31,8 @@ export interface UiToast {
 export interface ClientStore {
   // latestSnapshot is the client-side source of truth for rendering and local UI labels.
   latestSnapshot: SnapshotMessage | null;
+  // latestSnapshotReceivedAt is a performance timestamp used for render prediction.
+  latestSnapshotReceivedAt: number | null;
   // builderState caches the latest server builder payload while the panel is open.
   builderState: Extract<ServerMessage, { type: "builderState" }> | null;
   // builderOpen and hudMinimized are local UI preferences, not server state.
@@ -50,6 +52,7 @@ export interface ClientStore {
 export function createClientStore(): ClientStore {
   return {
     latestSnapshot: null,
+    latestSnapshotReceivedAt: null,
     builderState: null,
     builderOpen: false,
     hudMinimized: false,

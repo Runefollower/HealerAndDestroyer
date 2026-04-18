@@ -19,12 +19,15 @@ const terrainBurstLifetimeMs = 420;
 const maxTerrainBursts = 24;
 // Engine exhaust particles trail from thrusting ships and are retained between redraws.
 const exhaustParticleLifetimeMs = 520;
-const maxExhaustParticles = 120;
+const exhaustSpawnIntervalMs = 70;
+const maxExhaustParticles = 72;
 const minimumExhaustForwardSpeed = 10;
 // previousTerrainSnapshot tracks visible terrain cells from the prior render for destruction effects.
 let previousTerrainSnapshot: { mapId: string; cells: Map<string, TerrainCellRecord> } | null = null;
 const terrainBursts: TerrainBurst[] = [];
 const exhaustParticles: ExhaustParticle[] = [];
+const lastExhaustSpawnByPlayer = new Map<string, number>();
+const renderLayerStates = new WeakMap<PixiContainer, RenderLayerState>();
 
 export interface WorldViewport {
   // x/y are the top-left world coordinates currently visible through the camera.
@@ -40,12 +43,42 @@ export interface WorldRenderEffects {
   selfThrustForward?: boolean;
 }
 
+export interface WorldRenderStats {
+  // terrainRebuilt shows whether this frame rebuilt the retained terrain/fog layers.
+  terrainRebuilt: boolean;
+  // terrainSprites is the retained terrain sprite count after any rebuild.
+  terrainSprites: number;
+  // dynamicObjects is the number of display objects rebuilt this frame.
+  dynamicObjects: number;
+  // fogObjects is the retained fog overlay object count.
+  fogObjects: number;
+  // short-lived effect counts help catch particle/burst runaway.
+  exhaustParticles: number;
+  terrainBursts: number;
+}
+
 interface TerrainCellRecord {
   // value is the terrain material value from the snapshot cell.
   value: number;
   // x/y are the world-space center of the terrain cell.
   x: number;
   y: number;
+  // spriteX/spriteY are the top-left render coordinates for the oversized terrain sprite.
+  spriteX: number;
+  spriteY: number;
+  // visibility controls live-vs-remembered terrain styling.
+  visibility: number;
+  // variant selects the deterministic texture variation for this cell.
+  variant: number;
+  // renderKey changes when the retained sprite needs its texture or style refreshed.
+  renderKey: string;
+}
+
+interface TerrainSpriteRecord {
+  // renderKey mirrors TerrainCellRecord.renderKey so unchanged cells can be skipped cheaply.
+  renderKey: string;
+  // sprite is retained between terrain refreshes to avoid mass allocation/destruction hitches.
+  sprite: Sprite;
 }
 
 interface TerrainBurst {
@@ -72,6 +105,37 @@ interface ExhaustParticle {
   seed: number;
   // intensity reflects how strongly the ship is moving along its facing direction.
   intensity: number;
+}
+
+interface RenderLayerState {
+  // terrainLayer holds static terrain sprites rebuilt only when authoritative terrain changes.
+  terrainLayer: Container;
+  // dynamicLayer is rebuilt every render frame for moving entities and short-lived effects.
+  dynamicLayer: Container;
+  // playerLayer keeps player ship displays retained between frames to avoid allocation churn.
+  playerLayer: Container;
+  // fogLayer sits above dynamic objects and is rebuilt with terrain visibility.
+  fogLayer: Container;
+  // terrainKey records the authoritative snapshot/viewport state used for the cached terrain.
+  terrainKey: string | null;
+  // terrainMapId detects map transitions so stale terrain sprites can be dropped in one batch.
+  terrainMapId: string | null;
+  // terrainSprites stores retained terrain display objects keyed by chunk/cell position.
+  terrainSprites: Map<string, TerrainSpriteRecord>;
+  // playerDisplays stores retained ship/bar/label display objects keyed by player entity id.
+  playerDisplays: Map<string, PlayerDisplayRecord>;
+}
+
+interface PlayerDisplayRecord {
+  // visualKey changes when a ship swap/refit changes the retained ship art.
+  visualKey: string;
+  // ship is the layered sprite/graphics display for the hull and mounted visual parts.
+  ship: Container;
+  // hullBack and hullFill are retained health bar graphics updated in place.
+  hullBack: Graphics;
+  hullFill: Graphics;
+  // label is retained so Text objects are not created every frame.
+  label: Text;
 }
 
 export interface HudSelections {
@@ -130,55 +194,17 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
 }
 
 // Redraws the visible Pixi world layer from one server snapshot.
-export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage, viewport: WorldViewport, effects: WorldRenderEffects = {}): void {
-  // Transient visual state is updated before clearing the layer for a fresh snapshot render.
+export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage, viewport: WorldViewport, effects: WorldRenderEffects = {}): WorldRenderStats {
+  // Transient visual state is updated before refreshing cached/static and dynamic render layers.
   const now = typeof performance !== "undefined" ? performance.now() : Date.now();
   const paddedViewport = padViewport(viewport, viewportPadding);
+  const layers = getRenderLayerState(worldLayer);
   pruneProjectileHistory(snapshot.projectiles, now);
-  const terrainCells = buildTerrainCellMap(snapshot, paddedViewport);
-  spawnTerrainBursts(snapshot.mapId, terrainCells, now);
+  const terrainRebuilt = refreshTerrainLayer(layers, snapshot, paddedViewport, now);
   pruneTerrainBursts(now);
   pruneExhaustParticles(now);
-  clearWorldLayer(worldLayer);
-
-  // Draw visible and remembered terrain cells before entities.
-  for (const chunk of snapshot.chunks) {
-    chunk.cells.forEach((cell, index) => {
-      const cellVisibility = chunk.visibility[index] ?? 0;
-      if (cellVisibility === 0 || isEmptyTerrainCell(cell)) {
-        return;
-      }
-      const localX = index % 8;
-      const localY = Math.floor(index / 8);
-      const x = (chunk.chunkX * 8 + localX) * terrainTileSize;
-      const y = (chunk.chunkY * 8 + localY) * terrainTileSize;
-      if (!isRectInViewport(x - terrainSpriteInset, y - terrainSpriteInset, terrainSpriteSize, terrainSpriteSize, paddedViewport)) {
-        return;
-      }
-      const variant = selectTerrainVariant({
-        mapId: snapshot.mapId,
-        chunkX: chunk.chunkX,
-        chunkY: chunk.chunkY,
-        cellIndex: index,
-        cellType: cell
-      });
-      const sprite = new Sprite(getTerrainTexture(cell, variant));
-      sprite.position.set(x - terrainSpriteInset, y - terrainSpriteInset);
-      sprite.width = terrainSpriteSize;
-      sprite.height = terrainSpriteSize;
-      const material = getTerrainMaterialDefinition(cell);
-      sprite.alpha = material.renderAlpha;
-      if (material.tint !== undefined) {
-        sprite.tint = material.tint;
-      }
-      if (cellVisibility === 1) {
-        // Remembered cells are tinted and dimmed to distinguish fog-of-war memory from live vision.
-        sprite.tint = material.rememberedTint;
-        sprite.alpha *= 0.7;
-      }
-      worldLayer.addChild(sprite);
-    });
-  }
+  pruneExhaustSpawnTimers(snapshot);
+  clearLayer(layers.dynamicLayer);
 
   // Add terrain destruction bursts after terrain so the effects sit above the cells.
   for (const burst of terrainBursts) {
@@ -186,7 +212,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       continue;
     }
     const burstDisplay = createTerrainBurstEffect(burst, now);
-    worldLayer.addChild(burstDisplay);
+    layers.dynamicLayer.addChild(burstDisplay);
   }
 
   // Structures and foundries render before mobile entities so ships/enemies remain readable.
@@ -196,7 +222,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     }
     const sprite = createStructureDisplay(structure.structureTypeId);
     sprite.position.set(structure.position.x, structure.position.y);
-    worldLayer.addChild(sprite);
+    layers.dynamicLayer.addChild(sprite);
   }
 
   for (const foundry of snapshot.foundries) {
@@ -205,7 +231,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     }
     const sprite = createFoundryDisplay(foundry.active);
     sprite.position.set(foundry.position.x, foundry.position.y);
-    worldLayer.addChild(sprite);
+    layers.dynamicLayer.addChild(sprite);
 
     // Foundry status labels expose objective health without requiring a separate HUD entry.
     const statusLabel = new Text({
@@ -213,7 +239,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
       style: { fontSize: 12, fill: foundry.active ? 0xffd7cf : 0xb6c0cc }
     });
     statusLabel.position.set(foundry.position.x - 30, foundry.position.y - 52);
-    worldLayer.addChild(statusLabel);
+    layers.dynamicLayer.addChild(statusLabel);
   }
 
   // Drops, enemies, projectiles, and players are all already visibility-filtered by the server.
@@ -223,7 +249,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     }
     const sprite = createSalvageDisplay(drop.resources);
     sprite.position.set(drop.position.x, drop.position.y);
-    worldLayer.addChild(sprite);
+    layers.dynamicLayer.addChild(sprite);
   }
 
   for (const enemy of snapshot.enemies) {
@@ -233,7 +259,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     const sprite = createEnemyDisplay(enemy.enemyTypeId);
     sprite.position.set(enemy.position.x, enemy.position.y);
     sprite.rotation = enemy.rotation;
-    worldLayer.addChild(sprite);
+    layers.dynamicLayer.addChild(sprite);
   }
 
   for (const projectile of snapshot.projectiles) {
@@ -242,7 +268,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     }
     // Update projectile history after drawing so the next frame can infer trail direction.
     const fx = createProjectileEffect(projectile, now);
-    worldLayer.addChild(fx);
+    layers.dynamicLayer.addChild(fx);
     projectileHistory.set(projectile.id, {
       x: projectile.position.x,
       y: projectile.position.y,
@@ -262,51 +288,221 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     if (!isPointInViewport(particle.x, particle.y, paddedViewport)) {
       continue;
     }
-    worldLayer.addChild(createEngineExhaustParticle(particle, now));
+    layers.dynamicLayer.addChild(createEngineExhaustParticle(particle, now));
   }
 
-  for (const player of snapshot.players) {
-    if (!isPointInViewport(player.position.x, player.position.y, paddedViewport)) {
-      continue;
-    }
-    // Self ships use stronger accenting than allied ships.
-    const isSelf = player.playerId === snapshot.selfPlayerId;
-    const ship = createPlayerShipDisplay(player.hullId, player.modules, player.shipId, isSelf);
-    ship.position.set(player.position.x, player.position.y);
-    ship.rotation = player.rotation;
-    worldLayer.addChild(ship);
+  renderPlayerLayer(layers, snapshot, paddedViewport);
 
-    // Hull bar is drawn as simple Pixi geometry to keep the world layer self-contained.
-    const hullRatio = Math.max(0, Math.min(1, player.hull / Math.max(1, player.maxHull)));
-    const hullBack = new Graphics();
-    hullBack.rect(player.position.x - 16, player.position.y + 20, 32, 4).fill(0x071018);
-    hullBack.alpha = 0.9;
-    worldLayer.addChild(hullBack);
+  return {
+    terrainRebuilt,
+    terrainSprites: layers.terrainLayer.children.length,
+    dynamicObjects: layers.dynamicLayer.children.length + layers.playerLayer.children.length,
+    fogObjects: layers.fogLayer.children.length,
+    exhaustParticles: exhaustParticles.length,
+    terrainBursts: terrainBursts.length
+  };
+}
 
-    const hullFill = new Graphics();
-    hullFill.rect(player.position.x - 16, player.position.y + 20, Math.max(2, 32 * hullRatio), 4).fill(isSelf ? 0x73f3ca : 0xbecbda);
-    hullFill.alpha = 0.92;
-    worldLayer.addChild(hullFill);
-
-    const label = new Text({
-      text: isSelf ? "You" : "Ally",
-      style: { fontSize: 12, fill: 0xe9f2ff }
-    });
-    label.position.set(player.position.x - 12, player.position.y - 30);
-    worldLayer.addChild(label);
+// Creates or returns the retained child layers owned by this world container.
+function getRenderLayerState(worldLayer: PixiContainer): RenderLayerState {
+  const existing = renderLayerStates.get(worldLayer);
+  if (existing) {
+    return existing;
   }
 
-  // Fog overlay is last so hidden/remembered tiles sit visually above terrain and entities.
-  const fogOverlay = createVisibilityOverlay(snapshot, paddedViewport);
+  clearLayer(worldLayer);
+  const terrainLayer = new Container();
+  const dynamicLayer = new Container();
+  const playerLayer = new Container();
+  const fogLayer = new Container();
+  worldLayer.addChild(terrainLayer, dynamicLayer, playerLayer, fogLayer);
+
+  const created = {
+    terrainLayer,
+    dynamicLayer,
+    playerLayer,
+    fogLayer,
+    terrainKey: null,
+    terrainMapId: null,
+    terrainSprites: new Map<string, TerrainSpriteRecord>(),
+    playerDisplays: new Map<string, PlayerDisplayRecord>()
+  };
+  renderLayerStates.set(worldLayer, created);
+  return created;
+}
+
+// Rebuilds expensive static terrain/fog only when the authoritative snapshot changes.
+function refreshTerrainLayer(layers: RenderLayerState, snapshot: SnapshotMessage, viewport: WorldViewport, now: number): boolean {
+  const terrainKey = createTerrainRenderKey(snapshot);
+  if (layers.terrainKey === terrainKey) {
+    return false;
+  }
+
+  const terrainCells = buildTerrainCellMap(snapshot, viewport);
+  spawnTerrainBursts(snapshot.mapId, terrainCells, now);
+  syncTerrainLayer(layers, snapshot.mapId, terrainCells);
+  clearLayer(layers.fogLayer);
+
+  const fogOverlay = createVisibilityOverlay(snapshot, viewport);
   if (fogOverlay) {
-    worldLayer.addChild(fogOverlay);
+    layers.fogLayer.addChild(fogOverlay);
   }
 
-  // Store the terrain state after rendering so the next snapshot can detect removed cells.
   previousTerrainSnapshot = {
     mapId: snapshot.mapId,
     cells: terrainCells
   };
+  layers.terrainKey = terrainKey;
+  return true;
+}
+
+// Snapshot tick changes only when fresh server state arrives, avoiding per-frame terrain churn.
+function createTerrainRenderKey(snapshot: SnapshotMessage): string {
+  return `${snapshot.mapId}:${snapshot.tick}`;
+}
+
+// Draws visible and remembered terrain cells into a retained static layer.
+function syncTerrainLayer(layers: RenderLayerState, mapId: string, cells: Map<string, TerrainCellRecord>): void {
+  if (layers.terrainMapId !== mapId) {
+    clearLayer(layers.terrainLayer);
+    layers.terrainSprites.clear();
+    layers.terrainMapId = mapId;
+  }
+
+  const nextKeys = new Set(cells.keys());
+  for (const [cellKey, existing] of layers.terrainSprites.entries()) {
+    if (nextKeys.has(cellKey)) {
+      continue;
+    }
+    existing.sprite.parent?.removeChild(existing.sprite);
+    existing.sprite.destroy({ children: true, texture: false, textureSource: false });
+    layers.terrainSprites.delete(cellKey);
+  }
+
+  for (const [cellKey, cell] of cells.entries()) {
+    const existing = layers.terrainSprites.get(cellKey);
+    if (existing && existing.renderKey === cell.renderKey) {
+      existing.sprite.position.set(cell.spriteX, cell.spriteY);
+      continue;
+    }
+
+    if (existing) {
+      applyTerrainSpriteCell(existing.sprite, cell);
+      existing.renderKey = cell.renderKey;
+      continue;
+    }
+
+    const sprite = new Sprite(getTerrainTexture(cell.value, cell.variant));
+    sprite.width = terrainSpriteSize;
+    sprite.height = terrainSpriteSize;
+    applyTerrainSpriteCell(sprite, cell);
+    layers.terrainLayer.addChild(sprite);
+    layers.terrainSprites.set(cellKey, {
+      renderKey: cell.renderKey,
+      sprite
+    });
+  }
+}
+
+function applyTerrainSpriteCell(sprite: Sprite, cell: TerrainCellRecord): void {
+  sprite.texture = getTerrainTexture(cell.value, cell.variant);
+  sprite.position.set(cell.spriteX, cell.spriteY);
+  const material = getTerrainMaterialDefinition(cell.value);
+  sprite.tint = material.tint ?? 0xffffff;
+  sprite.alpha = material.renderAlpha;
+  if (cell.visibility === 1) {
+    // Remembered cells are tinted and dimmed to distinguish fog-of-war memory from live vision.
+    sprite.tint = material.rememberedTint;
+    sprite.alpha *= 0.7;
+  }
+}
+
+// Updates retained player displays in place so normal motion does not allocate new ship/label objects.
+function renderPlayerLayer(layers: RenderLayerState, snapshot: SnapshotMessage, viewport: WorldViewport): void {
+  const visiblePlayerIds = new Set<string>();
+
+  for (const player of snapshot.players) {
+    if (!isPointInViewport(player.position.x, player.position.y, viewport)) {
+      continue;
+    }
+
+    visiblePlayerIds.add(player.id);
+    const isSelf = player.playerId === snapshot.selfPlayerId;
+    const visualKey = createPlayerVisualKey(player, isSelf);
+    let record = layers.playerDisplays.get(player.id);
+    if (!record || record.visualKey !== visualKey) {
+      if (record) {
+        destroyPlayerDisplayRecord(record);
+        layers.playerDisplays.delete(player.id);
+      }
+      record = createPlayerDisplayRecord(player, isSelf, visualKey);
+      layers.playerDisplays.set(player.id, record);
+      layers.playerLayer.addChild(record.ship, record.hullBack, record.hullFill, record.label);
+    }
+
+    updatePlayerDisplayRecord(record, player, isSelf);
+  }
+
+  for (const [playerId, record] of layers.playerDisplays.entries()) {
+    if (visiblePlayerIds.has(playerId)) {
+      continue;
+    }
+    destroyPlayerDisplayRecord(record);
+    layers.playerDisplays.delete(playerId);
+  }
+}
+
+function createPlayerDisplayRecord(player: PlayerSnapshot, isSelf: boolean, visualKey: string): PlayerDisplayRecord {
+  const ship = createPlayerShipDisplay(player.hullId, player.modules, player.shipId, isSelf);
+  const hullBack = new Graphics();
+  const hullFill = new Graphics();
+  const label = new Text({
+    text: isSelf ? "You" : "Ally",
+    style: { fontSize: 12, fill: 0xe9f2ff }
+  });
+  hullBack.alpha = 0.9;
+  hullFill.alpha = 0.92;
+  return {
+    visualKey,
+    ship,
+    hullBack,
+    hullFill,
+    label
+  };
+}
+
+function updatePlayerDisplayRecord(record: PlayerDisplayRecord, player: PlayerSnapshot, isSelf: boolean): void {
+  record.ship.position.set(player.position.x, player.position.y);
+  record.ship.rotation = player.rotation;
+
+  const hullRatio = Math.max(0, Math.min(1, player.hull / Math.max(1, player.maxHull)));
+  record.hullBack.clear();
+  record.hullBack.rect(player.position.x - 16, player.position.y + 20, 32, 4).fill(0x071018);
+
+  record.hullFill.clear();
+  record.hullFill.rect(player.position.x - 16, player.position.y + 20, Math.max(2, 32 * hullRatio), 4).fill(isSelf ? 0x73f3ca : 0xbecbda);
+
+  record.label.text = isSelf ? "You" : "Ally";
+  record.label.position.set(player.position.x - 12, player.position.y - 30);
+}
+
+function destroyPlayerDisplayRecord(record: PlayerDisplayRecord): void {
+  record.ship.parent?.removeChild(record.ship);
+  record.hullBack.parent?.removeChild(record.hullBack);
+  record.hullFill.parent?.removeChild(record.hullFill);
+  record.label.parent?.removeChild(record.label);
+  record.ship.destroy({ children: true, texture: false, textureSource: false });
+  record.hullBack.destroy();
+  record.hullFill.destroy();
+  record.label.destroy();
+}
+
+function createPlayerVisualKey(player: PlayerSnapshot, isSelf: boolean): string {
+  const moduleKey = player.modules
+    .map((module) => `${module.hardpointId}:${module.moduleId}`)
+    .sort()
+    .join("|");
+  return `${player.shipId}:${player.hullId}:${isSelf ? "self" : "other"}:${moduleKey}`;
 }
 
 // Expands the viewport by a fixed padding so culling does not pop at the screen edge.
@@ -329,33 +525,48 @@ function isRectInViewport(x: number, y: number, width: number, height: number, v
   return x + width >= viewport.x && y + height >= viewport.y && x <= viewport.x + viewport.width && y <= viewport.y + viewport.height;
 }
 
-// Clears the old snapshot display objects so Text/Graphics GPU resources do not accumulate over time.
-function clearWorldLayer(worldLayer: PixiContainer): void {
-  const removedChildren = worldLayer.removeChildren();
+// Clears a layer's display objects so Text/Graphics GPU resources do not accumulate over time.
+function clearLayer(layer: PixiContainer): void {
+  const removedChildren = layer.removeChildren();
   for (const child of removedChildren) {
     child.destroy({ children: true, texture: false, textureSource: false });
   }
 }
 
-// Builds a keyed map of currently non-empty terrain cells for destruction-effect diffing.
+// Builds a keyed map of currently non-empty terrain cells for destruction effects and sprite reuse.
 function buildTerrainCellMap(snapshot: SnapshotMessage, viewport: WorldViewport): Map<string, TerrainCellRecord> {
   const cells = new Map<string, TerrainCellRecord>();
   for (const chunk of snapshot.chunks) {
     chunk.cells.forEach((cell, index) => {
-      if (isEmptyTerrainCell(cell)) {
+      const cellVisibility = chunk.visibility[index] ?? 0;
+      if (cellVisibility === 0 || isEmptyTerrainCell(cell)) {
         return;
       }
       const localX = index % 8;
       const localY = Math.floor(index / 8);
-      const x = (chunk.chunkX * 8 + localX) * terrainTileSize + terrainTileSize / 2;
-      const y = (chunk.chunkY * 8 + localY) * terrainTileSize + terrainTileSize / 2;
-      if (!isPointInViewport(x, y, viewport)) {
+      const tileX = (chunk.chunkX * 8 + localX) * terrainTileSize;
+      const tileY = (chunk.chunkY * 8 + localY) * terrainTileSize;
+      const spriteX = tileX - terrainSpriteInset;
+      const spriteY = tileY - terrainSpriteInset;
+      if (!isRectInViewport(spriteX, spriteY, terrainSpriteSize, terrainSpriteSize, viewport)) {
         return;
       }
+      const variant = selectTerrainVariant({
+        mapId: snapshot.mapId,
+        chunkX: chunk.chunkX,
+        chunkY: chunk.chunkY,
+        cellIndex: index,
+        cellType: cell
+      });
       cells.set(`${chunk.chunkX}:${chunk.chunkY}:${index}`, {
         value: cell,
-        x,
-        y
+        x: tileX + terrainTileSize / 2,
+        y: tileY + terrainTileSize / 2,
+        spriteX,
+        spriteY,
+        visibility: cellVisibility,
+        variant,
+        renderKey: `${cell}:${cellVisibility}:${variant}`
       });
     });
   }
@@ -406,6 +617,16 @@ function pruneExhaustParticles(now: number): void {
   exhaustParticles.push(...nextParticles.slice(-maxExhaustParticles));
 }
 
+// Drops exhaust timer entries for ships no longer present in the visibility-filtered snapshot.
+function pruneExhaustSpawnTimers(snapshot: SnapshotMessage): void {
+  const visiblePlayerIds = new Set(snapshot.players.map((player) => player.id));
+  for (const playerId of lastExhaustSpawnByPlayer.keys()) {
+    if (!visiblePlayerIds.has(playerId)) {
+      lastExhaustSpawnByPlayer.delete(playerId);
+    }
+  }
+}
+
 // Chooses burst tint by terrain material value.
 function terrainBurstTint(cellValue: number): number {
   return getTerrainMaterialDefinition(cellValue).burstTint;
@@ -449,6 +670,10 @@ function spawnEngineExhaust(player: PlayerSnapshot, now: number, forceForwardThr
   if (!hasEngineModule(player)) {
     return;
   }
+  const lastSpawnAt = lastExhaustSpawnByPlayer.get(player.id) ?? 0;
+  if (now - lastSpawnAt < exhaustSpawnIntervalMs) {
+    return;
+  }
 
   const facing = {
     x: Math.cos(player.rotation),
@@ -460,9 +685,10 @@ function spawnEngineExhaust(player: PlayerSnapshot, now: number, forceForwardThr
     return;
   }
 
+  lastExhaustSpawnByPlayer.set(player.id, now);
   const speedIntensity = Math.min(1, forwardSpeed / 85);
-  const seed = hashString(`${player.id}:${Math.floor(now / 40)}:${Math.round(player.position.x)}:${Math.round(player.position.y)}`);
-  const particleCount = 1 + Math.floor(speedIntensity * 2);
+  const seed = hashString(`${player.id}:${Math.floor(now / exhaustSpawnIntervalMs)}:${Math.round(player.position.x)}:${Math.round(player.position.y)}`);
+  const particleCount = 1 + Math.floor(speedIntensity);
   const side = { x: -facing.y, y: facing.x };
 
   for (let index = 0; index < particleCount; index += 1) {

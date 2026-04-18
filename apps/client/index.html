@@ -88,16 +88,24 @@
 
       #framerate {
         position: fixed;
-        right: 16px;
+        left: max(16px, calc(100vw - 392px));
         bottom: 16px;
         display: none;
+        width: 360px;
+        max-width: calc(100vw - 32px);
         color: #ffe45c;
         font-family: Arial, Helvetica, sans-serif;
         font-size: 16px;
         font-weight: 700;
-        line-height: 1;
+        line-height: 1.35;
+        white-space: pre;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(3, 7, 11, 0.68);
+        border: 1px solid rgba(255, 228, 92, 0.24);
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
         pointer-events: none;
+        text-align: left;
       }
 
       #framerate.visible {
