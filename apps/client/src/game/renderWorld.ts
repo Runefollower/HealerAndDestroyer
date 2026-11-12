@@ -1,5 +1,5 @@
 import { getTerrainMaterialDefinition, isEmptyTerrainCell, selectTerrainVariant, type PlayerSnapshot, type ProjectileSnapshot, type SnapshotMessage } from "@healer/shared";
-import { Container, Graphics, Sprite, Text, type Container as PixiContainer } from "pixi.js";
+import { Container, Graphics, Sprite, Text, type Container as PixiContainer, type DestroyOptions } from "pixi.js";
 import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
 import { createEnemyDisplay, createFoundryDisplay, createSalvageDisplay, createStructureDisplay } from "./worldEntityAssets.js";
@@ -28,6 +28,11 @@ const terrainBursts: TerrainBurst[] = [];
 const exhaustParticles: ExhaustParticle[] = [];
 const lastExhaustSpawnByPlayer = new Map<string, number>();
 const renderLayerStates = new WeakMap<PixiContainer, RenderLayerState>();
+// Destroy options for per-frame display objects. Shared textures are kept, but each Graphics' owned
+// GraphicsContext must be freed explicitly: Pixi v8 only destroys it for an options object when
+// `context: true` is set, otherwise its geometry lingers until Pixi's idle GC (~60-90s) and the heap
+// grows by several MB per second while playing.
+export const transientDisplayDestroyOptions: DestroyOptions = { children: true, texture: false, textureSource: false, context: true };
 
 export interface WorldViewport {
   // x/y are the top-left world coordinates currently visible through the camera.
@@ -375,7 +380,7 @@ function syncTerrainLayer(layers: RenderLayerState, mapId: string, cells: Map<st
       continue;
     }
     existing.sprite.parent?.removeChild(existing.sprite);
-    existing.sprite.destroy({ children: true, texture: false, textureSource: false });
+    existing.sprite.destroy(transientDisplayDestroyOptions);
     layers.terrainSprites.delete(cellKey);
   }
 
@@ -491,7 +496,7 @@ function destroyPlayerDisplayRecord(record: PlayerDisplayRecord): void {
   record.hullBack.parent?.removeChild(record.hullBack);
   record.hullFill.parent?.removeChild(record.hullFill);
   record.label.parent?.removeChild(record.label);
-  record.ship.destroy({ children: true, texture: false, textureSource: false });
+  record.ship.destroy(transientDisplayDestroyOptions);
   record.hullBack.destroy();
   record.hullFill.destroy();
   record.label.destroy();
@@ -529,7 +534,7 @@ function isRectInViewport(x: number, y: number, width: number, height: number, v
 function clearLayer(layer: PixiContainer): void {
   const removedChildren = layer.removeChildren();
   for (const child of removedChildren) {
-    child.destroy({ children: true, texture: false, textureSource: false });
+    child.destroy(transientDisplayDestroyOptions);
   }
 }
 

@@ -33,4 +33,8 @@ server.start().then(() => {
     snapshotRateHz: config.snapshotRateHz,
     logLevel: config.logLevel
   });
+}).catch((error) => {
+  // Startup failures (e.g. persistence unavailable) exit with a clear log line instead of an unhandled rejection.
+  logger.error("Server failed to start", { error: error instanceof Error ? error.message : String(error) });
+  process.exit(1);
 });

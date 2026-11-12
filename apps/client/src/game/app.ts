@@ -197,6 +197,11 @@ export async function bootstrapClient(): Promise<void> {
     }
   });
 
+  network.onConnectionStatus((status) => {
+    store.connectionStatus = status;
+    renderToasts(notifications, store);
+  });
+
   window.addEventListener("builder-interact", () => {
     // E toggles the builder only when the latest snapshot says the player is close enough.
     const nearby = !!store.latestSnapshot?.builderSiteNearby;
@@ -318,7 +323,7 @@ export async function bootstrapClient(): Promise<void> {
     if (nextToasts.length !== store.toasts.length) {
       store.toasts = nextToasts;
     }
-    renderToasts(notifications, store.toasts);
+    renderToasts(notifications, store);
     diagnostics.callbackMs = performance.now() - callbackStart;
     captureHitchIfNeeded(diagnostics);
   });
@@ -358,7 +363,7 @@ function handleServerMessage(
       },
       ...store.toasts
     ].slice(0, 4);
-    renderToasts(notifications, store.toasts);
+    renderToasts(notifications, store);
 
     if (store.builderOpen && store.latestSnapshot?.builderSiteNearby) {
       network.send({ type: "interact" });
@@ -378,7 +383,7 @@ function handleServerMessage(
       },
       ...store.toasts
     ].slice(0, 4);
-    renderToasts(notifications, store.toasts);
+    renderToasts(notifications, store);
     return clockOffsetMs;
   }
 
@@ -466,10 +471,22 @@ function captureHitchIfNeeded(diagnostics: ClientDiagnostics): void {
   };
 }
 
-// Renders the current toast stack into the notifications container.
-function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
-  container.innerHTML = toasts
-    .map(
+// Last markup written per container, so the per-frame toast refresh only touches the DOM when content changes.
+const renderedToastMarkup = new WeakMap<HTMLElement, string>();
+
+// Renders the connection banner and current toast stack into the notifications container.
+function renderToasts(container: HTMLElement, store: ClientStore): void {
+  const banner = describeConnectionStatus(store.connectionStatus);
+  const markup = [
+    banner
+      ? `
+        <div class="toast warning">
+          <p class="toast-title">${banner.title}</p>
+          <p class="toast-body">${banner.body}</p>
+        </div>
+      `
+      : "",
+    ...store.toasts.map(
       (toast) => `
         <div class="toast ${toast.tone}">
           <p class="toast-title">${toast.title}</p>
@@ -477,7 +494,23 @@ function renderToasts(container: HTMLElement, toasts: UiToast[]): void {
         </div>
       `
     )
-    .join("");
+  ].join("");
+  if (renderedToastMarkup.get(container) === markup) {
+    return;
+  }
+  renderedToastMarkup.set(container, markup);
+  container.innerHTML = markup;
+}
+
+// Produces banner copy while the server connection is down, or null when connected.
+function describeConnectionStatus(status: ClientStore["connectionStatus"]): { title: string; body: string } | null {
+  if (status === "reconnecting") {
+    return { title: "Connection Lost", body: "Reconnecting to the server..." };
+  }
+  if (status === "replaced") {
+    return { title: "Session Moved", body: "This pilot connected from another tab. Reload to take control here." };
+  }
+  return null;
 }
 
 // Renders the rolling FPS overlay when the local toggle is enabled.
