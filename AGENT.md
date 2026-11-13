@@ -59,6 +59,8 @@ Key files:
   - builder/stable UI rendering and interactions
 - `apps/client/src/game/renderWorld.ts`
   - HUD and world rendering
+- `apps/client/src/game/minimap.ts`
+  - fog-of-war minimap overlay (unknown / remembered / visible terrain plus visible markers), toggled with `M`
 - `apps/client/src/game/networkClient.ts`
   - WebSocket client wrapper
 - `apps/client/src/game/input.ts`
@@ -77,10 +79,11 @@ Current responsibilities:
 Current input model:
 
 - `WASD`: movement/rotation
-- left click: weapon fire
+- `Space`: weapon fire
 - right click: mining module activation
-- `Space`: support module activation
+- left click: support (repair) module activation
 - `E`: interact with builder site
+- `M`: cycle minimap (local / sector / hidden)
 
 ### `apps/server`
 

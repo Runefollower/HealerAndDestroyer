@@ -189,7 +189,7 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
       <div>Mining slot: ${selections.mining}</div>
       <div>Support slot: ${selections.support}</div>
       <div>${inventoryEntries}</div>
-      <div>Controls: WASD move, Space fire, right click mine, left click repair, E interact</div>
+      <div>Controls: WASD move, Space fire, right click mine, left click repair, E interact, M map</div>
       <div>Selection: 1 cycle weapon, 2 cycle mining, 3 cycle support</div>
     </div>
   `;
