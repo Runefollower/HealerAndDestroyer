@@ -114,6 +114,11 @@ export interface PersistedFoundryState extends PersistedStructureState {
   activeEnemyCount: number;
   active: boolean;
   destroyedAt?: number | null;
+  enemyMix?: string[];
+  defenseSlots?: Vec2[];
+  defenseRebuildMs?: number;
+  lastDefenseRebuildAt?: number;
+  reward?: ResourceMap;
 }
 
 export interface PersistedMapState {

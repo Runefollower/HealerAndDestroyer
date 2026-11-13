@@ -121,6 +121,8 @@ export interface ProjectileSnapshot {
   position: { x: number; y: number };
   // velocity is world-space pixels per second; projectiles fly straight, so the client can extrapolate exactly.
   velocity: { x: number; y: number };
+  // hostile marks enemy fire so the client can draw it differently from player bolts.
+  hostile?: boolean;
 }
 
 export interface StructureSnapshot {
@@ -295,7 +297,8 @@ export function createSnapshotMessage(
       Object.values(map.projectiles).map((projectile) => ({
         id: projectile.id,
         position: projectile.position,
-        velocity: projectile.velocity
+        velocity: projectile.velocity,
+        hostile: projectile.faction === "enemy"
       })),
     structures:
       overrides.structures ??

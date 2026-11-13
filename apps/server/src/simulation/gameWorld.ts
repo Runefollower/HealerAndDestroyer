@@ -1,4 +1,4 @@
-import { enemyDefinitions, getHullDefinition, moduleDefinitions } from "@healer/content";
+import { getHullDefinition, moduleDefinitions } from "@healer/content";
 import { createInMemoryPersistence, type PersistenceBundle } from "@healer/persistence";
 import {
   addResourceMaps,
@@ -11,10 +11,8 @@ import {
   createSnapshotMessage,
   distance,
   hasEnoughResources,
-  normalize,
   PLAYER_MOVEMENT_INPUT_RATE_HZ,
   PLAYER_VELOCITY_RETENTION,
-  scaleVec2,
   subtractResourceMaps,
   type ActivateModuleMessage,
   type PlayerMovementInput,
@@ -34,8 +32,19 @@ import {
   type StoredShip,
   type WorldRuntimeState
 } from "@healer/shared";
-import { createDefaultPlayerSave, createRuntimeState, createWorldGraph } from "./createWorld.js";
-import { tickFoundries, applyFoundryDamage, isDeeperPathUnlocked, refreshFoundryEnemyCounts } from "./foundries.js";
+import { createDefaultPlayerSave, createRuntimeState, createWorldGraph, getDefaultRespawnPoint } from "./createWorld.js";
+import { tickFoundries, applyFoundryDamage, isDeeperPathUnlocked, seedFoundryDefenses } from "./foundries.js";
+import {
+  RESPAWN_INVULNERABILITY_MS,
+  WRECK_OWNER_PROTECTION_MS,
+  canCollectDrop,
+  computeWreckSalvage,
+  damagePlayerShip,
+  findBoltPlayerHit,
+  killEnemy,
+  tickEnemies,
+  type PlayerDestruction
+} from "./combat.js";
 import { findNearestValidPosition, findTerrainImpactAlongPath, getEnemyCollisionRadius, getPlayerShipCollisionRadius, resolveMovement } from "./collision.js";
 import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
@@ -160,6 +169,12 @@ export class GameWorld {
       } else {
         await this.persistence.maps.saveMapState(this.worldId, serializeMapState(this.runtime.maps[mapSummary.id], mapSummary));
       }
+    }
+
+    // Enemies are not persisted, so every standing foundry starts with a full fortification garrison.
+    const now = Date.now();
+    for (const map of Object.values(this.runtime.maps)) {
+      seedFoundryDefenses(map, now);
     }
   }
 
@@ -289,12 +304,20 @@ export class GameWorld {
     const now = Date.now();
 
     // Each map ticks independently so future active maps can simulate at the same cadence.
+    const destroyed: PlayerDestruction[] = [];
+    const entityIdFactory = (prefix: string) => () => `${prefix}-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`;
     for (const map of Object.values(this.runtime.maps)) {
       this.tickPlayers(map, deltaSeconds);
-      this.tickProjectiles(map, deltaMs);
-      this.tickEnemies(map, deltaSeconds);
-      await this.collectDrops(map);
-      tickFoundries(map, now, () => `enemy-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`);
+      destroyed.push(...this.tickProjectiles(map, deltaMs, now));
+      destroyed.push(...tickEnemies(map, deltaSeconds, now, entityIdFactory("bolt")));
+      await this.collectDrops(map, now);
+      tickFoundries(map, now, entityIdFactory("enemy"));
+    }
+
+    // Destroyed ships leave a wreck and respawn after every map has ticked, so a ship moved to the root map
+    // is not simulated twice in one tick.
+    for (const destruction of destroyed) {
+      await this.destroyPlayerShip(destruction, now);
     }
 
     // Build completions are checked after map simulation so player notifications are queued once per tick.
@@ -410,7 +433,9 @@ export class GameWorld {
   }
 
   // Advances projectiles, applies impact damage, creates drops, and removes expired projectiles.
-  private tickProjectiles(map: ActiveMapState, deltaMs: number): void {
+  // Returns player ships destroyed by enemy fire this tick.
+  private tickProjectiles(map: ActiveMapState, deltaMs: number, now: number): PlayerDestruction[] {
+    const destroyed: PlayerDestruction[] = [];
     for (const projectile of Object.values(map.projectiles)) {
       // Move first, then sample the previous-to-current path for terrain collision.
       const previousPosition = { ...projectile.position };
@@ -420,6 +445,11 @@ export class GameWorld {
 
       const terrainImpact = findTerrainImpactAlongPath(map, previousPosition, projectile.position, 2);
       if (terrainImpact) {
+        // Enemy bolts stop on rock without breaking it, so defenders do not dig out their own fortifications.
+        if (projectile.faction === "enemy") {
+          delete map.projectiles[projectile.id];
+          continue;
+        }
         // Terrain destruction is persisted immediately so mined walls survive later reconnects.
         projectile.position = terrainImpact;
         const terrainDamage = damageTerrainAt(map, terrainImpact, projectile.damage, this.tickCounter, 0.75);
@@ -430,21 +460,28 @@ export class GameWorld {
         continue;
       }
 
+      // Enemy bolts only hit player ships.
+      if (projectile.faction === "enemy") {
+        const target = findBoltPlayerHit(map, projectile.position);
+        if (target) {
+          delete map.projectiles[projectile.id];
+          const sourceType = projectile.ownerEnemyId ? map.enemies[projectile.ownerEnemyId]?.enemyTypeId : undefined;
+          if (damagePlayerShip(target, projectile.damage, now)) {
+            destroyed.push({ player: target, cause: sourceType ?? "enemy fire" });
+          }
+        } else if (projectile.lifetimeMs <= 0) {
+          delete map.projectiles[projectile.id];
+        }
+        continue;
+      }
+
       // Enemy impacts create salvage drops and refresh foundry spawn counts after kills.
-      const enemy = Object.values(map.enemies).find((entry) => distance(entry.position, projectile.position) < 14);
+      const enemy = Object.values(map.enemies).find((entry) => distance(entry.position, projectile.position) < getEnemyCollisionRadius(entry) + 2);
       if (enemy) {
         enemy.health -= projectile.damage;
         delete map.projectiles[projectile.id];
         if (enemy.health <= 0) {
-          const definition = enemyDefinitions.find((entry) => entry.id === enemy.enemyTypeId);
-          map.drops[`drop-${enemy.id}`] = {
-            id: asEntityId(`drop-${enemy.id}`),
-            mapId: enemy.mapId,
-            position: { ...enemy.position },
-            resources: definition?.salvage ?? { ferrite: 1 }
-          };
-          delete map.enemies[enemy.id];
-          refreshFoundryEnemyCounts(map);
+          killEnemy(map, enemy, now);
         }
         continue;
       }
@@ -477,59 +514,14 @@ export class GameWorld {
         delete map.projectiles[projectile.id];
       }
     }
-  }
-
-  // Updates enemy AI by chasing the nearest visible player and applying contact damage.
-  private tickEnemies(map: ActiveMapState, deltaSeconds: number): void {
-    for (const enemy of Object.values(map.enemies)) {
-      // Enemy vision uses the same terrain line-of-sight rules as player snapshots.
-      const nearestPlayer = findNearestVisiblePlayer(map, enemy);
-      if (!nearestPlayer) {
-        enemy.aiState = "idle";
-        enemy.velocity = { x: 0, y: 0 };
-        continue;
-      }
-
-      // Chasing enemies steer directly toward the current target using content-defined speed.
-      enemy.aiState = "chasing";
-      const direction = normalize({
-        x: nearestPlayer.position.x - enemy.position.x,
-        y: nearestPlayer.position.y - enemy.position.y
-      });
-      enemy.rotation = Math.atan2(direction.y, direction.x);
-      const enemyDefinition = enemyDefinitions.find((entry) => entry.id === enemy.enemyTypeId);
-      enemy.velocity = scaleVec2(direction, enemyDefinition?.speed ?? 20);
-      const resolved = resolveMovement(map, enemy.position, enemy.velocity, deltaSeconds, {
-        radius: getEnemyCollisionRadius(enemy),
-        excludeEntityId: enemy.id,
-        includePlayers: true,
-        includeEnemies: true
-      });
-      enemy.position = resolved.position;
-      enemy.velocity = resolved.velocity;
-
-      // Contact damage is intentionally simple for the current vertical slice.
-      if (distance(enemy.position, nearestPlayer.position) < 18) {
-        const previousHull = nearestPlayer.hull;
-        nearestPlayer.hull = Math.max(0, nearestPlayer.hull - 4);
-        if (previousHull > 0 && nearestPlayer.hull === 0) {
-          logger.info("Player ship destroyed", {
-            playerId: nearestPlayer.playerId,
-            mapId: nearestPlayer.mapId,
-            enemyId: enemy.id,
-            enemyTypeId: enemy.enemyTypeId,
-            position: nearestPlayer.position
-          });
-        }
-      }
-    }
-    refreshFoundryEnemyCounts(map);
+    return destroyed;
   }
 
   // Transfers nearby resource drops into player runtime inventory and persists the new totals.
-  private async collectDrops(map: ActiveMapState): Promise<void> {
+  // Protected wreck salvage can only be collected by its owner until the protection expires.
+  private async collectDrops(map: ActiveMapState, now: number): Promise<void> {
     for (const [dropId, drop] of Object.entries(map.drops)) {
-      const collector = Object.values(map.players).find((entry) => distance(entry.position, drop.position) < 16);
+      const collector = Object.values(map.players).find((entry) => distance(entry.position, drop.position) < 16 && canCollectDrop(drop, entry, now));
       if (!collector) {
         continue;
       }
@@ -546,6 +538,95 @@ export class GameWorld {
       delete map.drops[dropId];
       await this.syncRuntimeInventoryToPersistence(collector.playerId);
     }
+  }
+
+  // Runs the GDD failure loop (§4.3, §16) for a ship whose hull reached zero: the wreck drops half the
+  // carried cargo plus half the ship's build cost as owner-protected salvage, the destroyed ship leaves the
+  // stable, and the player respawns at the root spawn in a fresh fallback Sparrow with a starter loadout.
+  private async destroyPlayerShip(destruction: PlayerDestruction, now: number): Promise<void> {
+    const { player, cause } = destruction;
+    const sourceMap = this.runtime.maps[player.mapId];
+    if (!sourceMap || sourceMap.players[player.playerId] !== player || player.hull > 0) {
+      return;
+    }
+    const save = await this.persistence.players.getPlayer(this.worldId, player.playerId);
+    if (!save) {
+      return;
+    }
+
+    // Wreck salvage stays where the ship died.
+    const wreckPosition = { ...player.position };
+    const salvage = computeWreckSalvage(player.inventory, { hullId: player.hullId, modules: player.modules });
+    const wreckId = asEntityId(`wreck-${player.playerId}-${this.tickCounter}`);
+    if (Object.keys(salvage.spilled).length > 0) {
+      sourceMap.drops[wreckId] = {
+        id: wreckId,
+        mapId: sourceMap.id,
+        position: wreckPosition,
+        resources: salvage.spilled,
+        ownerPlayerId: player.playerId,
+        protectedUntil: now + WRECK_OWNER_PROTECTION_MS
+      };
+    }
+
+    // The destroyed ship is lost; a free fallback Sparrow takes its place as the active ship.
+    const lostShip = save.shipStable[save.activeShipId];
+    delete save.shipStable[save.activeShipId];
+    const fallback = createFallbackShip(player.playerId, now);
+    save.shipStable[fallback.id] = fallback;
+    save.activeShipId = fallback.id;
+    save.resourceCounts = { ...salvage.keptInventory };
+    const respawn = getDefaultRespawnPoint();
+    save.spawnPoint = { mapId: respawn.mapId, position: { ...respawn.position } };
+    save.updatedAt = now;
+
+    // Move the live ship to the respawn map and rebuild it from the fallback save.
+    const respawnMap = this.runtime.maps[respawn.mapId];
+    delete sourceMap.players[player.playerId];
+    player.mapId = respawn.mapId;
+    player.velocity = { x: 0, y: 0 };
+    player.angularVelocity = 0;
+    player.moduleCooldowns = {};
+    syncRuntimeShipFromSave(player, save);
+    player.hull = player.maxHull;
+    player.power = player.maxPower;
+    player.invulnerableUntil = now + RESPAWN_INVULNERABILITY_MS;
+    player.position = findNearestValidPosition(respawnMap, respawn.position, getPlayerShipCollisionRadius(player), {
+      includePlayers: true,
+      includeEnemies: true
+    });
+    respawnMap.players[player.playerId] = player;
+    const session = this.sessions.get(player.playerId);
+    if (session) {
+      session.pendingMoveInputs = [];
+    }
+
+    await this.persistence.players.savePlayer(syncPlayerSaveFromRuntime(player, save));
+    logger.info("Player ship destroyed", {
+      playerId: player.playerId,
+      mapId: sourceMap.id,
+      cause,
+      lostShipId: lostShip?.id,
+      lostHullId: lostShip?.hullId,
+      wreckPosition,
+      wreckSalvage: salvage.spilled
+    });
+
+    const salvageTotal = Object.values(salvage.spilled).reduce((sum, amount) => sum + amount, 0);
+    const where = sourceMap.id === respawn.mapId ? "where you went down" : `in ${sourceMap.id}`;
+    this.queueActionFeedback(
+      player.playerId,
+      "ship_destroyed",
+      "Ship Destroyed",
+      salvageTotal > 0
+        ? `${lostShip?.name ?? "Your ship"} was destroyed by ${cause}. ${salvageTotal} salvage waits ${where}, reserved for you for ${Math.round(WRECK_OWNER_PROTECTION_MS / 1000)}s. Respawned in a fallback Sparrow.`
+        : `${lostShip?.name ?? "Your ship"} was destroyed by ${cause}. Respawned in a fallback Sparrow.`,
+      "warning",
+      now,
+      0,
+      true
+    );
+    this.queueMessage(player.playerId, createBuilderState(save, now));
   }
 
   // Finds the active runtime map containing a connected player.
@@ -680,6 +761,7 @@ export class GameWorld {
     // discoverExit mutates the graph synchronously, so a second player arriving mid-save sees it discovered.
     const startedAt = performance.now();
     const discovered = discoverExit(this.persistentWorld, connection, now);
+    seedFoundryDefenses(discovered.map, now);
     this.runtime.maps[discovered.summary.id] = discovered.map;
     const sourceMap = this.runtime.maps[connection.sourceMapId];
     if (sourceMap && !sourceMap.connections.includes(connection)) {
@@ -1237,4 +1319,22 @@ export class GameWorld {
       }
     }
   }
+}
+
+// The fallback ship a destroyed player respawns in: a free Sparrow Scout with the starter loadout.
+function createFallbackShip(playerId: string, now: number): StoredShip {
+  return {
+    id: asShipId(`ship-${playerId}-fallback-${now}`),
+    name: "Fallback Sparrow",
+    hullId: "sparrow-scout",
+    modules: [
+      { moduleId: "starter-thruster", hardpointId: "engine-rear", currentHealth: 30 },
+      { moduleId: "pulse-cannon", hardpointId: "weapon-front", currentHealth: 24 },
+      { moduleId: "mining-laser", hardpointId: "utility-belly", currentHealth: 20 }
+    ],
+    hullIntegrity: getHullDefinition("sparrow-scout").baseHull,
+    status: "active",
+    buildStartedAt: null,
+    buildCompleteAt: null
+  };
 }

@@ -768,6 +768,10 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   const pulse = 0.5 + 0.5 * Math.sin(now / 80 + hashString(projectile.id) * 0.03);
   // Trail length matches 1/10 s of travel, the look the old per-snapshot delta produced at 10 Hz snapshots.
   const trailLength = Math.max(10, Math.min(30, (speed / 10) * 2.4 + 10));
+  // Enemy fire is drawn in hot red/orange so incoming bolts read differently from the player's blue pulses.
+  const palette = projectile.hostile
+    ? { outer: 0xff4a2a, streak: 0xffe2c8, glow: 0xff7a3a, core: 0xfff4e8 }
+    : { outer: 0x2aa8ff, streak: 0xeefaff, glow: 0x4bcfff, core: 0xf8fdff };
 
   // The projectile is drawn in local space and rotated to align with travel direction.
   const container = new Container();
@@ -775,22 +779,22 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   container.rotation = angle;
 
   const outerGlow = new Graphics();
-  outerGlow.ellipse(-trailLength * 0.42, 0, trailLength * 0.6, 4.6 + pulse * 1.2).fill(0x2aa8ff);
+  outerGlow.ellipse(-trailLength * 0.42, 0, trailLength * 0.6, 4.6 + pulse * 1.2).fill(palette.outer);
   outerGlow.alpha = 0.15 + pulse * 0.08;
   container.addChild(outerGlow);
 
   const innerStreak = new Graphics();
-  innerStreak.ellipse(-trailLength * 0.3, 0, trailLength * 0.34, 1.5 + pulse * 0.5).fill(0xeefaff);
+  innerStreak.ellipse(-trailLength * 0.3, 0, trailLength * 0.34, 1.5 + pulse * 0.5).fill(palette.streak);
   innerStreak.alpha = 0.88;
   container.addChild(innerStreak);
 
   const coreGlow = new Graphics();
-  coreGlow.circle(0, 0, 6 + pulse * 1.6).fill(0x4bcfff);
+  coreGlow.circle(0, 0, 6 + pulse * 1.6).fill(palette.glow);
   coreGlow.alpha = 0.18 + pulse * 0.08;
   container.addChild(coreGlow);
 
   const core = new Graphics();
-  core.circle(0, 0, 2.5 + pulse * 0.7).fill(0xf8fdff);
+  core.circle(0, 0, 2.5 + pulse * 0.7).fill(palette.core);
   core.alpha = 0.98;
   container.addChild(core);
 

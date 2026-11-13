@@ -11,6 +11,8 @@ interface WorldSpriteDefinition {
   height: number;
   // offset adjusts the sprite relative to the entity center.
   offset?: { x: number; y: number };
+  // tint recolors shared art so a variant reads as a different unit until it gets its own sprite.
+  tint?: number;
 }
 
 type SalvageSpriteId = "ferrite-salvage" | "plasma-salvage" | "mixed-salvage";
@@ -33,6 +35,14 @@ const enemySpriteRegistry: Record<string, WorldSpriteDefinition> = {
     textureUrl: "/assets/world/enemies/burrow-sentry.png",
     width: 48,
     height: 34
+  },
+  // Placeholder: the ranged sentinel reuses the drone art in amber until it gets its own sprite.
+  sentinel: {
+    id: "sentinel",
+    textureUrl: "/assets/world/enemies/drone-scout.png",
+    width: 46,
+    height: 33,
+    tint: 0xffb347
   }
 };
 
@@ -99,8 +109,28 @@ export function preloadWorldEntityTextures(): Promise<void> {
 
 // Creates an enemy display for the given enemy type, falling back for missing art.
 export function createEnemyDisplay(enemyTypeId: string): Container {
+  if (enemyTypeId === "defense-turret") {
+    return createTurretDisplay();
+  }
   const definition = enemySpriteRegistry[enemyTypeId];
   return createWorldSprite(definition, 0xff6478, 16, 12);
+}
+
+// Draws a fortification turret: an armored base with a barrel along local +x, so the entity rotation
+// shows where it is aiming. Procedural until the turret gets sprite art.
+function createTurretDisplay(): Container {
+  const container = new Container();
+  const base = new Graphics();
+  base.regularPoly(0, 0, 15, 6).fill(0x3a2a2e);
+  base.stroke({ color: 0xff7e6b, width: 2, alpha: 0.9 });
+  container.addChild(base);
+  const barrel = new Graphics();
+  barrel.roundRect(2, -3, 18, 6, 2).fill(0xc9564a);
+  container.addChild(barrel);
+  const core = new Graphics();
+  core.circle(0, 0, 6).fill(0xffb08a);
+  container.addChild(core);
+  return container;
 }
 
 // Creates a static structure display for the given structure type.
@@ -155,6 +185,9 @@ function createWorldSprite(definition: WorldSpriteDefinition | undefined, fallba
   sprite.position.set(definition.offset?.x ?? 0, definition.offset?.y ?? 0);
   sprite.width = definition.width;
   sprite.height = definition.height;
+  if (definition.tint !== undefined) {
+    sprite.tint = definition.tint;
+  }
   container.addChild(sprite);
   return container;
 }
