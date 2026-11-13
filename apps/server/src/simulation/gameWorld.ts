@@ -12,10 +12,12 @@ import {
   distance,
   hasEnoughResources,
   normalize,
+  PLAYER_MOVEMENT_INPUT_RATE_HZ,
   PLAYER_VELOCITY_RETENTION,
   scaleVec2,
   subtractResourceMaps,
   type ActivateModuleMessage,
+  type PlayerMovementInput,
   type ActiveMapState,
   type BuilderActionMessage,
   type ChangeMapMessage,
@@ -45,11 +47,30 @@ interface PlayerSessionState {
   playerId: ReturnType<typeof asPlayerId>;
   // Connection timestamp used for diagnostics and future session aging.
   connectedAt: number;
-  // Last client input tick processed for this session.
+  // Last client input tick applied by the simulation; echoed in snapshots so the client can reconcile.
   lastInputTick: number;
+  // Movement inputs received but not yet simulated. While a client is streaming input, each input is exactly
+  // one movement step (input + integration), which is the same step the client replays when predicting, so
+  // prediction and server agree regardless of network jitter or small clock differences between the two.
+  pendingMoveInputs: QueuedMoveInput[];
+  // Consecutive ticks with no queued input. After a short gap the ship coasts on the server tick instead.
+  starvedTicks: number;
   // Per-session terrain memory that is written back to the player save on disconnect.
   terrainMemoryByMap: PlayerSave["terrainMemoryByMap"];
 }
+
+interface QueuedMoveInput extends PlayerMovementInput {
+  tick: number;
+}
+
+// Movement step length; every input is one step of this length on both server and client.
+const movementStepSeconds = 1 / PLAYER_MOVEMENT_INPUT_RATE_HZ;
+// With more than this many inputs queued, two are stepped per tick to catch up after a network hiccup.
+const catchUpQueueLength = 2;
+// Inputs beyond this are dropped (oldest first) so a client sending too fast cannot speed its ship up.
+const maxQueuedMoveInputs = 8;
+// A ship whose input stream pauses for longer than this coasts on the server tick, as if no keys were held.
+const maxStarvedTicks = 3;
 
 const logger = createLogger("gameWorld");
 type SubmitShipDesignMessage = Extract<BuilderActionMessage, { action: "submitShipDesign" }>;
@@ -133,6 +154,8 @@ export class GameWorld {
       playerId,
       connectedAt: Date.now(),
       lastInputTick: 0,
+      pendingMoveInputs: [],
+      starvedTicks: maxStarvedTicks,
       terrainMemoryByMap: structuredClone(player.terrainMemoryByMap)
     });
 
@@ -194,8 +217,7 @@ export class GameWorld {
 
     switch (parsed.type) {
       case "moveInput":
-        this.applyMovementInput(player, parsed);
-        this.sessions.get(playerId)!.lastInputTick = parsed.tick;
+        this.queueMovementInput(playerId, parsed);
         return [];
       case "fireWeapon":
         this.fireWeapon(player, parsed, now);
@@ -264,6 +286,7 @@ export class GameWorld {
       this.isBuilderSiteNearby(playerId),
       isDeeperPathUnlocked(this.runtime.maps["map-root"]),
       {
+        lastProcessedInputTick: session.lastInputTick,
         players: visibility.players,
         enemies: visibility.enemies,
         projectiles: visibility.projectiles,
@@ -275,21 +298,48 @@ export class GameWorld {
     );
   }
 
-  // Integrates player ship movement and applies simple drag after collision resolution.
+  // Advances player ships. A ship with a live input stream takes one movement step per queued input (input,
+  // then integration), matching the client's replay exactly. Without input it coasts one tick at a time.
   private tickPlayers(map: ActiveMapState, deltaSeconds: number): void {
     for (const player of Object.values(map.players)) {
-      // Resolve against terrain, structures, players, and enemies so ships cannot overlap blockers.
-      const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
-        radius: getPlayerShipCollisionRadius(player),
-        excludeEntityId: player.id,
-        includePlayers: true,
-        includeEnemies: true
-      });
-      player.position = resolved.position;
-      player.velocity = resolved.velocity;
-      player.velocity.x *= PLAYER_VELOCITY_RETENTION;
-      player.velocity.y *= PLAYER_VELOCITY_RETENTION;
+      const session = this.sessions.get(player.playerId);
+      const queued = session?.pendingMoveInputs ?? [];
+      if (!session || queued.length === 0) {
+        if (session) {
+          session.starvedTicks += 1;
+        }
+        // A brief gap is normal network jitter: hold position and let the next inputs catch up. A longer
+        // gap means the client stopped sending (tab hidden, disconnected), so keep the ship drifting.
+        if (!session || session.starvedTicks > maxStarvedTicks) {
+          this.stepPlayerMovement(map, player, deltaSeconds);
+        }
+        continue;
+      }
+
+      session.starvedTicks = 0;
+      const stepCount = queued.length > catchUpQueueLength ? 2 : 1;
+      for (const input of queued.splice(0, stepCount)) {
+        applyPlayerMovementInput(player, input);
+        session.lastInputTick = input.tick;
+        this.stepPlayerMovement(map, player, movementStepSeconds);
+      }
     }
+  }
+
+  // Integrates one player ship step with collision resolution and drag.
+  private stepPlayerMovement(map: ActiveMapState, player: ActiveMapState["players"][string], deltaSeconds: number): void {
+    // Resolve against terrain, structures, players, and enemies so ships cannot overlap blockers.
+    const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
+      radius: getPlayerShipCollisionRadius(player),
+      excludeEntityId: player.id,
+      includePlayers: true,
+      includeEnemies: true
+    });
+    player.position = resolved.position;
+    player.velocity = resolved.velocity;
+    const retention = PLAYER_VELOCITY_RETENTION ** (deltaSeconds * PLAYER_MOVEMENT_INPUT_RATE_HZ);
+    player.velocity.x *= retention;
+    player.velocity.y *= retention;
   }
 
   // Advances projectiles, applies impact damage, creates drops, and removes expired projectiles.
@@ -444,9 +494,27 @@ export class GameWorld {
     return map.players[playerId];
   }
 
-  // Applies raw movement input by rotating the ship and adding thrust along its current facing.
-  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean }): void {
-    applyPlayerMovementInput(player, input);
+  // Queues a movement input sample for the next simulation tick. Inputs at or before the last applied tick
+  // are stale duplicates and are ignored.
+  private queueMovementInput(playerId: ReturnType<typeof asPlayerId>, input: QueuedMoveInput): void {
+    const session = this.sessions.get(playerId);
+    if (!session) {
+      return;
+    }
+    const newestQueuedTick = session.pendingMoveInputs.at(-1)?.tick ?? session.lastInputTick;
+    if (input.tick <= newestQueuedTick) {
+      return;
+    }
+    session.pendingMoveInputs.push({
+      thrustForward: input.thrustForward,
+      thrustReverse: input.thrustReverse,
+      rotateLeft: input.rotateLeft,
+      rotateRight: input.rotateRight,
+      tick: input.tick
+    });
+    if (session.pendingMoveInputs.length > maxQueuedMoveInputs) {
+      session.pendingMoveInputs.splice(0, session.pendingMoveInputs.length - maxQueuedMoveInputs);
+    }
   }
 
   // Handles weapon fire and queues feedback for non-cooldown failures.

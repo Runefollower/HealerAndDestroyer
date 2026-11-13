@@ -111,12 +111,16 @@ export interface EnemySnapshot {
   enemyTypeId: string;
   position: { x: number; y: number };
   rotation: number;
+  // velocity is world-space pixels per second, used by the client to dead-reckon between snapshots.
+  velocity: { x: number; y: number };
   health: number;
 }
 
 export interface ProjectileSnapshot {
   id: EntityId;
   position: { x: number; y: number };
+  // velocity is world-space pixels per second; projectiles fly straight, so the client can extrapolate exactly.
+  velocity: { x: number; y: number };
 }
 
 export interface StructureSnapshot {
@@ -156,6 +160,9 @@ export interface ChunkSnapshot {
 export interface SnapshotMessage {
   type: "snapshot";
   tick: number;
+  // lastProcessedInputTick is the newest moveInput tick the server applied for this player, so the
+  // client can replay only the inputs the server has not seen yet when predicting its own ship.
+  lastProcessedInputTick: number;
   selfPlayerId: PlayerId;
   mapId: MapId;
   players: PlayerSnapshot[];
@@ -215,6 +222,7 @@ export type ServerMessage =
   | ActionFeedbackMessage;
 
 export interface SnapshotMessageOverrides {
+  lastProcessedInputTick?: number;
   players?: PlayerSnapshot[];
   enemies?: EnemySnapshot[];
   projectiles?: ProjectileSnapshot[];
@@ -237,6 +245,7 @@ export function createSnapshotMessage(
   return {
     type: "snapshot",
     tick,
+    lastProcessedInputTick: overrides.lastProcessedInputTick ?? 0,
     selfPlayerId,
     mapId,
     players:
@@ -260,13 +269,15 @@ export function createSnapshotMessage(
         enemyTypeId: enemy.enemyTypeId,
         position: enemy.position,
         rotation: enemy.rotation,
+        velocity: enemy.velocity,
         health: enemy.health
       })),
     projectiles:
       overrides.projectiles ??
       Object.values(map.projectiles).map((projectile) => ({
         id: projectile.id,
-        position: projectile.position
+        position: projectile.position,
+        velocity: projectile.velocity
       })),
     structures:
       overrides.structures ??
