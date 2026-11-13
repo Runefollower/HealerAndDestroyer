@@ -1,0 +1,20 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d579-b9f6-7af3-abe7-b6f2fea586c1",
+  "seed": 1211415358,
+  "input": {
+    "prompt": "An aggressive heavy destroyer starship hull seen from above, nose pointing straight up toward the top of the image, long angular arrowhead body with two forward-swept weapon pylons on the left and right of the nose, gunmetal grey and dark crimson armor plating with orange warning stripes, a narrow glowing amber cockpit slit, hull only with no engine nozzles and no guns attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 2
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d579-dbbe-7983-b2f7-c38c4657a5e7",
+      "01a1d579-e0a6-7830-901b-a0d259f44e15"
+    ]
+  },
+  "batchIndex": 2,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

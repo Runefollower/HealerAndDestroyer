@@ -37,10 +37,37 @@ export interface HullDefinition {
   category: "scout" | "healer" | "destroyer" | "miner" | "heavy";
   baseHull: number;
   mass: number;
+  // powerCapacity is the hull reactor's output. Installed modules' powerUse must fit inside it (plus any
+  // power-module output), and whatever is left over recharges the energy store.
   powerCapacity: number;
+  // energyCapacity is the built-in energy store that weapon shots and support pulses draw from.
+  energyCapacity: number;
+  // baseThrust is the hull's own maneuvering thrust, so a ship without an engine module can still crawl.
+  baseThrust: number;
+  // torque sets turn rate together with total mass (turn step = torque / mass, GDD 8.3).
+  torque: number;
   buildCost: ResourceMap;
   buildTimeMs: number;
   hardpoints: HardpointDefinition[];
+}
+
+export interface EngineModuleConfig {
+  // thrust adds to the hull's base thrust; acceleration = total thrust / total mass.
+  thrust: number;
+  // torque optionally adds turning authority on top of the hull's own torque.
+  torque?: number;
+}
+
+export interface PowerModuleConfig {
+  // output raises the ship's power budget (and so its recharge surplus).
+  output: number;
+  // storage raises the energy store's capacity.
+  storage: number;
+}
+
+export interface ArmorModuleConfig {
+  // hullBonus raises the ship's maximum hull integrity while installed.
+  hullBonus: number;
 }
 
 export interface WeaponModuleConfig {
@@ -59,6 +86,8 @@ export interface SupportModuleConfig {
   repairAmount: number;
   cooldownMs: number;
   allowSelfTarget: boolean;
+  // energyCost is spent from the ship's energy store on each successful repair pulse.
+  energyCost: number;
 }
 
 export interface ModuleDefinition {
@@ -75,14 +104,22 @@ export interface ModuleDefinition {
   weapon?: WeaponModuleConfig;
   mining?: MiningModuleConfig;
   support?: SupportModuleConfig;
+  engine?: EngineModuleConfig;
+  power?: PowerModuleConfig;
+  armor?: ArmorModuleConfig;
 }
 
 export interface WeaponDefinition {
   id: string;
   name: string;
   damage: number;
+  // range is the projectile speed in pixels per second for the current prototype.
   range: number;
   cooldownMs: number;
+  // energyCost is spent from the ship's energy store on each shot.
+  energyCost: number;
+  // projectileLifetimeMs overrides the default lifetime of cooldownMs * 3.
+  projectileLifetimeMs?: number;
 }
 
 export interface EnemyDefinition {

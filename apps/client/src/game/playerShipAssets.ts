@@ -1,4 +1,4 @@
-import { getModuleDefinition } from "@healer/content";
+import { getHullDefinition, getModuleDefinition } from "@healer/content";
 import type { InstalledModule } from "@healer/shared";
 import { Assets, Container, Graphics, Sprite, Texture } from "pixi.js";
 
@@ -24,12 +24,25 @@ export interface ShipPartOption {
   compatibleModuleIds?: string[];
 }
 
-interface ShipVisualLoadout {
-  // Each loadout slot is nullable so missing art can fall back gracefully.
-  hull: ShipPartOption | null;
-  engine: ShipPartOption | null;
-  weapon: ShipPartOption | null;
+interface PlacedShipPart {
+  part: ShipPartOption;
+  // offset is the final ship-local position after moving the part to its module's hardpoint.
+  offset: { x: number; y: number };
 }
+
+interface ShipVisualLoadout {
+  // The hull is nullable so missing art can fall back gracefully; engines and weapons get one sprite per module.
+  hull: PlacedShipPart | null;
+  engines: PlacedShipPart[];
+  weapons: PlacedShipPart[];
+}
+
+// Engine and weapon part offsets were authored for the Sparrow's hardpoints. Parts on other hardpoints keep the
+// same mounting relationship by shifting with the hardpoint's position relative to these.
+const referenceHardpointPositions: Record<"engine" | "weapon", { x: number; y: number }> = {
+  engine: { x: -14, y: 0 },
+  weapon: { x: 12, y: 0 }
+};
 
 // Textures are cached by URL after preloading so display creation is cheap during snapshots.
 const textureCache = new Map<string, Texture>();
@@ -78,6 +91,46 @@ export const playerShipPartCatalog: Record<ShipPartKind, ShipPartOption[]> = {
       height: 60,
       offset: { x: 0, y: 0 },
       compatibleHullIds: ["warden-healer"]
+    },
+    {
+      id: "breaker-spear",
+      label: "Breaker Spear",
+      kind: "hull",
+      textureUrl: "/assets/ships/player/hulls/breaker-spear.png",
+      width: 90,
+      height: 58,
+      offset: { x: 0, y: 0 },
+      compatibleHullIds: ["breaker-destroyer"]
+    },
+    {
+      id: "breaker-fang",
+      label: "Breaker Fang",
+      kind: "hull",
+      textureUrl: "/assets/ships/player/hulls/breaker-fang.png",
+      width: 90,
+      height: 58,
+      offset: { x: 0, y: 0 },
+      compatibleHullIds: ["breaker-destroyer"]
+    },
+    {
+      id: "delver-hauler",
+      label: "Delver Hauler",
+      kind: "hull",
+      textureUrl: "/assets/ships/player/hulls/delver-hauler.png",
+      width: 86,
+      height: 66,
+      offset: { x: 0, y: 0 },
+      compatibleHullIds: ["delver-miner"]
+    },
+    {
+      id: "delver-bore",
+      label: "Delver Bore",
+      kind: "hull",
+      textureUrl: "/assets/ships/player/hulls/delver-bore.png",
+      width: 84,
+      height: 64,
+      offset: { x: 0, y: 0 },
+      compatibleHullIds: ["delver-miner"]
     }
   ],
   engine: [
@@ -110,6 +163,16 @@ export const playerShipPartCatalog: Record<ShipPartKind, ShipPartOption[]> = {
       height: 30,
       offset: { x: -30, y: 0 },
       compatibleModuleIds: ["starter-thruster"]
+    },
+    {
+      id: "heavy-drive",
+      label: "Heavy Drive",
+      kind: "engine",
+      textureUrl: "/assets/ships/player/engines/heavy-drive.png",
+      width: 38,
+      height: 30,
+      offset: { x: -32, y: 0 },
+      compatibleModuleIds: ["heavy-drive"]
     }
   ],
   weapon: [
@@ -142,6 +205,16 @@ export const playerShipPartCatalog: Record<ShipPartKind, ShipPartOption[]> = {
       height: 16,
       offset: { x: 32, y: 0 },
       compatibleModuleIds: ["pulse-cannon"]
+    },
+    {
+      id: "rail-lance",
+      label: "Rail Lance",
+      kind: "weapon",
+      textureUrl: "/assets/ships/player/weapons/rail-lance.png",
+      width: 46,
+      height: 14,
+      offset: { x: 36, y: 0 },
+      compatibleModuleIds: ["rail-lance"]
     }
   ]
 };
@@ -184,14 +257,10 @@ export function createPlayerShipDisplay(hullId: string, modules: InstalledModule
   }
 
   // Layer order puts engines behind the hull and weapons above the hull.
-  for (const part of [loadout.engine, loadout.hull, loadout.weapon]) {
-    if (!part) {
-      continue;
-    }
-
+  for (const { part, offset } of [...loadout.engines, loadout.hull, ...loadout.weapons]) {
     const sprite = new Sprite(textureCache.get(part.textureUrl) ?? Texture.from(part.textureUrl));
     sprite.anchor.set(0.5);
-    sprite.position.set(part.offset.x, part.offset.y);
+    sprite.position.set(offset.x, offset.y);
     sprite.width = part.width;
     sprite.height = part.height;
     display.addChild(sprite);
@@ -204,15 +273,14 @@ export function createPlayerShipDisplay(hullId: string, modules: InstalledModule
 export function renderPlayerShipPreviewMarkup(hullId: string, modules: InstalledModule[], seed: string, label: string): string {
   const loadout = resolvePlayerShipLoadout(hullId, modules, seed);
   // HTML previews use the same loadout rules as Pixi rendering so builder and world agree.
-  const parts = [loadout.engine, loadout.hull, loadout.weapon]
-    .filter((part): part is ShipPartOption => part !== null)
+  const parts = [...loadout.engines, ...(loadout.hull ? [loadout.hull] : []), ...loadout.weapons]
     .map(
-      (part) => `
+      ({ part, offset }) => `
         <img
           class="ship-preview-sprite ship-preview-${part.kind}"
           src="${part.textureUrl}"
           alt=""
-          style="width:${Math.round(part.width * 1.15)}px;height:${Math.round(part.height * 1.15)}px;transform:translate(-50%, -50%) translate(${Math.round(part.offset.x * 1.15)}px, ${Math.round(part.offset.y * 1.15)}px);"
+          style="width:${Math.round(part.width * 1.15)}px;height:${Math.round(part.height * 1.15)}px;transform:translate(-50%, -50%) translate(${Math.round(offset.x * 1.15)}px, ${Math.round(offset.y * 1.15)}px);"
         />`
     )
     .join("");
@@ -227,20 +295,45 @@ export function renderPlayerShipPreviewMarkup(hullId: string, modules: Installed
 // Resolves the deterministic visual parts that match the ship hull and installed modules.
 function resolvePlayerShipLoadout(hullId: string, modules: InstalledModule[], seed: string): ShipVisualLoadout {
   const hullOptions = playerShipPartCatalog.hull.filter((part) => part.compatibleHullIds?.includes(hullId));
+  const hullPart = pickVariant(`${seed}:${hullId}:hull`, hullOptions);
+  const hardpoints = new Map(tryGetHardpoints(hullId).map((hardpoint) => [hardpoint.id, hardpoint.localPosition]));
   const engineModules = modules.filter((module) => getModuleDefinition(module.moduleId).slotType === "engine");
   const weaponModules = modules.filter((module) => getModuleDefinition(module.moduleId).capabilities.includes("weapon"));
 
   return {
-    hull: pickVariant(`${seed}:${hullId}:hull`, hullOptions),
-    engine: pickCompatibleVariant(`${seed}:engine`, playerShipPartCatalog.engine, engineModules),
-    weapon: pickCompatibleVariant(`${seed}:weapon`, playerShipPartCatalog.weapon, weaponModules)
+    hull: hullPart ? { part: hullPart, offset: hullPart.offset } : null,
+    engines: placeModuleParts(`${seed}:engine`, "engine", engineModules, hardpoints),
+    weapons: placeModuleParts(`${seed}:weapon`, "weapon", weaponModules, hardpoints)
   };
 }
 
-// Selects a visual part variant compatible with at least one installed module.
-function pickCompatibleVariant(seed: string, options: ShipPartOption[], modules: InstalledModule[]): ShipPartOption | null {
-  const compatible = options.filter((option) => modules.some((module) => option.compatibleModuleIds?.includes(module.moduleId)));
-  return pickVariant(seed, compatible);
+// Picks art for each installed module and moves it to that module's hardpoint. Every module of the same type
+// shares one variant so a twin-gun ship looks symmetric.
+function placeModuleParts(
+  seed: string,
+  kind: "engine" | "weapon",
+  modules: InstalledModule[],
+  hardpoints: Map<string, { x: number; y: number }>
+): PlacedShipPart[] {
+  const reference = referenceHardpointPositions[kind];
+  return modules.flatMap((module) => {
+    const compatible = playerShipPartCatalog[kind].filter((option) => option.compatibleModuleIds?.includes(module.moduleId));
+    const part = pickVariant(`${seed}:${module.moduleId}`, compatible);
+    if (!part) {
+      return [];
+    }
+    const mount = hardpoints.get(module.hardpointId) ?? reference;
+    return [{ part, offset: { x: part.offset.x + mount.x - reference.x, y: part.offset.y + mount.y - reference.y } }];
+  });
+}
+
+// Unknown hulls (stale saves, missing content) still render with reference mounts instead of throwing.
+function tryGetHardpoints(hullId: string) {
+  try {
+    return getHullDefinition(hullId).hardpoints;
+  } catch {
+    return [];
+  }
 }
 
 // Picks a stable option from a list using a hash seed.

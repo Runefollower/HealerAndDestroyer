@@ -174,6 +174,7 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
         <button class="hud-toggle" type="button" data-action="toggle-hud">Expand</button>
       </div>
       <div>Map: ${snapshot.mapId}</div>
+      <div class="energy-bar"><div class="energy-bar-fill" style="width:${energyPercent(snapshot)}%"></div></div>
       <div class="muted-copy">${objective}</div>
     `;
     return;
@@ -194,6 +195,8 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
       <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
       <div>Deeper path unlocked: ${snapshot.deeperPathUnlocked ? "yes" : "destroy the foundry"}</div>
       <div>Exit nearby: ${describeNearbyExit(snapshot)}</div>
+      <div>Energy: ${Math.floor(snapshot.selfEnergy)} / ${Math.round(snapshot.selfMaxEnergy)}</div>
+      <div class="energy-bar"><div class="energy-bar-fill" style="width:${energyPercent(snapshot)}%"></div></div>
       <div>Weapon slot: ${selections.weapon}</div>
       <div>Mining slot: ${selections.mining}</div>
       <div>Support slot: ${selections.support}</div>
@@ -202,6 +205,11 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
       <div>Selection: 1 cycle weapon, 2 cycle mining, 3 cycle support</div>
     </div>
   `;
+}
+
+// Energy fill for the HUD bar, as a whole-number percentage.
+function energyPercent(snapshot: SnapshotMessage): number {
+  return Math.round(Math.max(0, Math.min(1, snapshot.selfEnergy / Math.max(1, snapshot.selfMaxEnergy))) * 100);
 }
 
 // Redraws the visible Pixi world layer from one server snapshot.

@@ -31,13 +31,18 @@ class FakeServer {
     id: asEntityId("ship-entity"),
     playerId: selfPlayerId,
     shipId: asShipId("ship-1"),
-    hullId: "scout",
+    // The starter Sparrow loadout derives exactly the default movement profile the fake server applies.
+    hullId: "sparrow-scout",
     position: { x: 0, y: 0 },
     velocity: { x: 0, y: 0 },
     rotation: 0,
     hull: 10,
     maxHull: 10,
-    modules: []
+    modules: [
+      { moduleId: "starter-thruster", hardpointId: "engine-rear", currentHealth: 30 },
+      { moduleId: "pulse-cannon", hardpointId: "weapon-front", currentHealth: 24 },
+      { moduleId: "mining-laser", hardpointId: "utility-belly", currentHealth: 20 }
+    ]
   };
   projectile = { id: asEntityId("projectile-1"), position: { x: 0, y: 500 }, velocity: { x: 300, y: 0 } };
   enemy = { id: asEntityId("enemy-1"), enemyTypeId: "drone", position: { x: 0, y: -500 }, velocity: { x: 60, y: 0 }, rotation: 0, health: 10 };
@@ -73,6 +78,8 @@ class FakeServer {
       chunks: [],
       inventory: {},
       selfModules: [],
+      selfEnergy: 60,
+      selfMaxEnergy: 60,
       builderSiteNearby: false,
       deeperPathUnlocked: false,
       exits: [],

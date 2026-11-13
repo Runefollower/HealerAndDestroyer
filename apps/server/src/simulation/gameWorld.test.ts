@@ -174,6 +174,129 @@ describe("GameWorld", () => {
     expect(Math.abs(projectile.velocity.x)).toBeLessThan(0.001);
   });
 
+  it("spends energy per shot, refuses shots on an empty store, and recharges over time", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const player = rootMap.players["player-1"];
+    player.position = { x: 120, y: 120 };
+    expect(player.power).toBe(player.maxPower);
+    expect(world.getSnapshot("player-1").selfMaxEnergy).toBe(player.maxPower);
+
+    const fire = (tick: number) =>
+      world.handleMessage("player-1", { type: "fireWeapon", weaponHardpointId: "weapon-front", tick });
+    await fire(1);
+    expect(Object.keys(rootMap.projectiles)).toHaveLength(1);
+    expect(player.power).toBe(player.maxPower - 5);
+
+    // An empty store blocks the shot even once the cooldown is over, without a feedback toast per press.
+    player.power = 2;
+    vi.advanceTimersByTime(400);
+    await fire(2);
+    expect(Object.keys(rootMap.projectiles)).toHaveLength(1);
+    expect(world.drainPendingMessages("player-1").filter((message) => message.type === "actionFeedback")).toHaveLength(0);
+
+    // The starter Sparrow has 12 spare power, so it recharges 8 + 12 * 0.5 = 14 energy per second.
+    for (let index = 0; index < 30; index += 1) {
+      await world.tick();
+    }
+    expect(player.power).toBeCloseTo(16, 5);
+    await fire(3);
+    expect(Object.keys(rootMap.projectiles).length).toBeGreaterThanOrEqual(1);
+    expect(player.power).toBeCloseTo(11, 5);
+  });
+
+  it("fires each destroyer gun from its own hardpoint and flies the heavier hull more slowly", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+    await world.connectPlayer("player-2");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const scout = rootMap.players["player-1"];
+    const destroyer = rootMap.players["player-2"];
+    destroyer.hullId = "breaker-destroyer";
+    destroyer.modules = [
+      { moduleId: "rail-lance", hardpointId: "weapon-port", currentHealth: 30 },
+      { moduleId: "rail-lance", hardpointId: "weapon-starboard", currentHealth: 30 },
+      { moduleId: "heavy-drive", hardpointId: "engine-rear", currentHealth: 45 },
+      { moduleId: "reactive-plating", hardpointId: "armor-ring", currentHealth: 36 }
+    ];
+    destroyer.power = 100;
+    destroyer.rotation = 0;
+    scout.rotation = 0;
+    // Park both ships in open space, well apart, so collision does not eat the thrust under test.
+    const openSpot = (exclude: string) => {
+      for (let y = 64; y < 4000; y += 48) {
+        for (let x = 64; x < 4000; x += 48) {
+          if (!isPositionBlocked(rootMap, { x, y }, 48, { includePlayers: true, includeEnemies: true, excludeEntityId: exclude })) {
+            return { x, y };
+          }
+        }
+      }
+      throw new Error("No open space found.");
+    };
+    destroyer.position = openSpot(destroyer.id);
+    scout.position = openSpot(scout.id);
+
+    for (const weaponHardpointId of ["weapon-port", "weapon-starboard"]) {
+      await world.handleMessage("player-2", { type: "fireWeapon", weaponHardpointId, tick: 1 });
+    }
+    const shots = Object.values(rootMap.projectiles).filter((projectile) => projectile.ownerPlayerId === destroyer.playerId);
+    expect(shots).toHaveLength(2);
+    expect(shots.map((shot) => Math.sign(shot.position.y - destroyer.position.y)).sort()).toEqual([-1, 1]);
+    expect(shots[0].damage).toBe(60);
+    expect(destroyer.power).toBe(100 - 36);
+
+    // Same thrust input for one step: the 151-mass destroyer gains less speed than the 70-mass scout.
+    scout.velocity = { x: 0, y: 0 };
+    destroyer.velocity = { x: 0, y: 0 };
+    for (const playerId of ["player-1", "player-2"]) {
+      await world.handleMessage(playerId, { type: "moveInput", thrustForward: true, thrustReverse: false, rotateLeft: false, rotateRight: false, tick: 1 });
+    }
+    await world.tick();
+    const scoutSpeed = Math.hypot(scout.velocity.x, scout.velocity.y);
+    const destroyerSpeed = Math.hypot(destroyer.velocity.x, destroyer.velocity.y);
+    expect(destroyerSpeed).toBeGreaterThan(0);
+    expect(destroyerSpeed).toBeLessThan(scoutSpeed);
+  });
+
+  it("rejects ship designs that draw more power than the reactor provides", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    const rootMap = world.runtime.maps["map-root"];
+    const builder = Object.values(rootMap.structures).find((structure) => structure.structureTypeId === "builder-site");
+    if (!builder) {
+      throw new Error("Expected builder structure.");
+    }
+    rootMap.players["player-1"].position = { ...builder.position };
+    rootMap.players["player-1"].inventory = { rock: 200, stone: 200, ferrite: 200, "plasma-crystal": 50 };
+
+    const response = await world.handleMessage("player-1", {
+      type: "builderAction",
+      action: "submitShipDesign",
+      mode: "refit",
+      hullId: "sparrow-scout",
+      shipId: "ship-player-1",
+      modules: [
+        { hardpointId: "engine-rear", moduleId: "heavy-drive" },
+        { hardpointId: "weapon-front", moduleId: "rail-lance" },
+        { hardpointId: "utility-belly", moduleId: "bore-drill" }
+      ]
+    });
+    if (response[0]?.type !== "builderState") {
+      throw new Error("Expected builder state response.");
+    }
+
+    const activeShip = response[0].ships.find((ship) => ship.shipId === "ship-player-1");
+    expect(activeShip?.ship.modules.map((module) => module.moduleId)).toEqual(["starter-thruster", "pulse-cannon", "mining-laser"]);
+    expect(world.drainPendingMessages("player-1")).toContainEqual(expect.objectContaining({ type: "actionFeedback", code: "ship_design_power_overload" }));
+  });
+
   it("destroys terrain on critical projectile impact and leaves debris", async () => {
     const world = new GameWorld();
     await world.initialize();

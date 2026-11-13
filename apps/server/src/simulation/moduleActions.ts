@@ -57,6 +57,9 @@ export function applyWeaponFire(
   if (!isModuleReady(player, installedModule.hardpointId, now)) {
     return { ok: false, code: "weapon_on_cooldown", hardpointId: installedModule.hardpointId };
   }
+  if (player.power < weapon.energyCost) {
+    return { ok: false, code: "insufficient_energy", hardpointId: installedModule.hardpointId };
+  }
 
   // Hardpoint orientation controls projectile direction and muzzle offset in the rotated ship frame.
   const hull = getHullDefinition(player.hullId);
@@ -77,8 +80,9 @@ export function applyWeaponFire(
     position: spawnPosition,
     velocity: scaleVec2(direction, weapon.range),
     damage: weapon.damage,
-    lifetimeMs: weapon.cooldownMs * 3
+    lifetimeMs: weapon.projectileLifetimeMs ?? weapon.cooldownMs * 3
   };
+  player.power -= weapon.energyCost;
   markModuleUsed(player, installedModule.hardpointId, now + weapon.cooldownMs);
   return { ok: true, code: "weapon_fired", hardpointId: installedModule.hardpointId };
 }
@@ -135,6 +139,10 @@ export function activateInstalledModule(
     if (target.hull >= target.maxHull) {
       return { ok: false, code: "support_target_full_hull", hardpointId: installedModule.hardpointId };
     }
+    if (player.power < moduleDefinition.support.energyCost) {
+      return { ok: false, code: "insufficient_energy", hardpointId: installedModule.hardpointId };
+    }
+    player.power -= moduleDefinition.support.energyCost;
     target.hull = Math.min(target.maxHull, target.hull + moduleDefinition.support.repairAmount);
     markModuleUsed(player, installedModule.hardpointId, now + moduleDefinition.support.cooldownMs);
     return { ok: true, code: "support_applied", hardpointId: installedModule.hardpointId };

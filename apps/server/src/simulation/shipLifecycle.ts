@@ -1,10 +1,10 @@
-import { getHullDefinition } from "@healer/content";
+import { getShipStats } from "@healer/content";
 import { asEntityId, type BuilderStateMessage, type PlayerSave, type PlayerShipState, type StoredShip } from "@healer/shared";
 
 // Builds the live simulation ship from the player's saved active ship and spawn point.
 export function createRuntimeShip(playerId: PlayerShipState["playerId"], ship: StoredShip, player: PlayerSave): PlayerShipState {
-  // Hull definitions supply current capacity limits while the save supplies player-owned state.
-  const hull = getHullDefinition(ship.hullId);
+  // Derived hull+loadout stats supply capacity limits while the save supplies player-owned state.
+  const stats = getShipStats(ship.hullId, ship.modules);
   return {
     id: asEntityId(`entity-${ship.id}`),
     playerId,
@@ -15,10 +15,11 @@ export function createRuntimeShip(playerId: PlayerShipState["playerId"], ship: S
     velocity: { x: 0, y: 0 },
     rotation: 0,
     angularVelocity: 0,
-    hull: ship.hullIntegrity,
-    maxHull: hull.baseHull,
-    power: hull.powerCapacity,
-    maxPower: hull.powerCapacity,
+    hull: Math.min(ship.hullIntegrity, stats.maxHull),
+    maxHull: stats.maxHull,
+    // power/maxPower hold the energy store; a freshly launched ship starts fully charged.
+    power: stats.energyCapacity,
+    maxPower: stats.energyCapacity,
     modules: structuredClone(ship.modules),
     inventory: { ...player.resourceCounts },
     moduleCooldowns: {}
@@ -50,14 +51,14 @@ export function syncCompletedShipBuilds(player: PlayerSave, now: number): { chan
 // Copies active ship save data back onto the live ship when modules, hull, or active ship changes.
 export function syncRuntimeShipFromSave(runtimePlayer: PlayerShipState, playerSave: PlayerSave): void {
   const activeShip = resolveActiveShip(playerSave);
-  const hull = getHullDefinition(activeShip.hullId);
+  const stats = getShipStats(activeShip.hullId, activeShip.modules);
   runtimePlayer.shipId = activeShip.id;
   runtimePlayer.hullId = activeShip.hullId;
   runtimePlayer.modules = structuredClone(activeShip.modules);
-  runtimePlayer.hull = activeShip.hullIntegrity;
-  runtimePlayer.maxHull = hull.baseHull;
-  runtimePlayer.power = Math.min(runtimePlayer.power, hull.powerCapacity);
-  runtimePlayer.maxPower = hull.powerCapacity;
+  runtimePlayer.maxHull = stats.maxHull;
+  runtimePlayer.hull = Math.min(activeShip.hullIntegrity, stats.maxHull);
+  runtimePlayer.power = Math.min(runtimePlayer.power, stats.energyCapacity);
+  runtimePlayer.maxPower = stats.energyCapacity;
   runtimePlayer.inventory = { ...playerSave.resourceCounts };
 }
 

@@ -27,16 +27,64 @@ export const PLAYER_REVERSE_THRUST = 80;
 export const PLAYER_VELOCITY_RETENTION = 0.96;
 export const PLAYER_MOVEMENT_INPUT_RATE_HZ = 30;
 
+// Per-ship movement tuning derived from hull and module stats (see deriveShipMovementProfile).
+export interface ShipMovementProfile {
+  // forwardAcceleration and reverseAcceleration are pixels per second squared while the key is held.
+  forwardAcceleration: number;
+  reverseAcceleration: number;
+  // rotationStep is radians turned per 30 Hz input step.
+  rotationStep: number;
+}
+
+// The tuning every ship used before hull/module stats mattered. It is also the starter Sparrow's derived profile.
+export const DEFAULT_SHIP_MOVEMENT_PROFILE: ShipMovementProfile = {
+  forwardAcceleration: PLAYER_FORWARD_THRUST,
+  reverseAcceleration: PLAYER_REVERSE_THRUST,
+  rotationStep: PLAYER_ROTATION_STEP
+};
+
+// Converts thrust units into pixels per second squared: acceleration = scale * thrust / mass (GDD 8.3).
+export const SHIP_THRUST_TO_ACCELERATION = 40;
+// Converts torque units into radians per input step: rotationStep = scale * torque / mass.
+export const SHIP_TORQUE_TO_ROTATION_STEP = 0.2;
+// Reverse thrust stays at half of forward thrust, as it always has.
+export const SHIP_REVERSE_THRUST_RATIO = PLAYER_REVERSE_THRUST / PLAYER_FORWARD_THRUST;
+// Clamps keep extreme loadouts controllable: no ship turns too sluggishly to aim or so fast it is twitchy.
+export const SHIP_MIN_ROTATION_STEP = 0.07;
+export const SHIP_MAX_ROTATION_STEP = 0.28;
+export const SHIP_MIN_FORWARD_ACCELERATION = 40;
+export const SHIP_MAX_FORWARD_ACCELERATION = 260;
+
+// Derives a ship's movement profile from total thrust, torque, and mass. Shared so the server simulation and
+// the client's input replay always agree for the same loadout.
+export function deriveShipMovementProfile(totalThrust: number, totalTorque: number, totalMass: number): ShipMovementProfile {
+  const mass = Math.max(1, totalMass);
+  const forwardAcceleration = clampNumber((SHIP_THRUST_TO_ACCELERATION * totalThrust) / mass, SHIP_MIN_FORWARD_ACCELERATION, SHIP_MAX_FORWARD_ACCELERATION);
+  return {
+    forwardAcceleration,
+    reverseAcceleration: forwardAcceleration * SHIP_REVERSE_THRUST_RATIO,
+    rotationStep: clampNumber((SHIP_TORQUE_TO_ROTATION_STEP * totalTorque) / mass, SHIP_MIN_ROTATION_STEP, SHIP_MAX_ROTATION_STEP)
+  };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 // Applies one raw input sample to rotation and velocity, matching the server's authoritative handling.
-export function applyPlayerMovementInput(state: PlayerMovementState, input: PlayerMovementInput): void {
+export function applyPlayerMovementInput(
+  state: PlayerMovementState,
+  input: PlayerMovementInput,
+  profile: ShipMovementProfile = DEFAULT_SHIP_MOVEMENT_PROFILE
+): void {
   if (input.rotateLeft) {
-    state.rotation -= PLAYER_ROTATION_STEP;
+    state.rotation -= profile.rotationStep;
   }
   if (input.rotateRight) {
-    state.rotation += PLAYER_ROTATION_STEP;
+    state.rotation += profile.rotationStep;
   }
 
-  const thrust = input.thrustForward ? PLAYER_FORWARD_THRUST : input.thrustReverse ? -PLAYER_REVERSE_THRUST : 0;
+  const thrust = input.thrustForward ? profile.forwardAcceleration : input.thrustReverse ? -profile.reverseAcceleration : 0;
   if (thrust === 0) {
     return;
   }
