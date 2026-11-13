@@ -120,19 +120,42 @@ The following major milestones are already implemented in the current prototype 
 - named archetype configs (starter cavern, deep cavern, foundry arena, resource cavern, tunnel network) replace hard-coded generator constants and root/deeper settings
 - ore and unstable crystals can no longer block corridors, and minimum resource counts are guaranteed per archetype
 
+21. Client leak fix and server robustness
+- per-frame Pixi `Graphics` are destroyed with `context: true`; without it Pixi v8 kept every GraphicsContext until its idle GC and the client heap grew about 7MB/s
+- malformed client messages are rejected instead of crashing the server; tick and snapshot loops are guarded and overlapping async ticks are skipped
+- the client reconnects with backoff and shows a connection banner; the newest socket wins for a duplicate player id
+
+22. Generated art pipeline
+- terrain materials (rock, ferrite, plasma crystal, ancient stone, unstable crystal) are cut from FLUX textures generated through fal (`npm run generate:terrain`)
+- player hull parts, enemies, structures, and salvage are FLUX sprites with background removal (`npm run generate:sprites`); `npm run generate:fal` generates new source images
+
+23. Fixed-rate input, prediction, and wall-clock motion
+- the client samples input at the 30 Hz tick rate with sequence numbers; the server applies one queued input per tick and echoes the last applied input, and the client replays unacknowledged inputs (fixes rotation snap-back)
+- snapshots carry projectile and enemy velocity; entities are placed by server tick mapped onto the local clock, and remote corrections blend out over about 80 ms
+
+24. Fog-of-war minimap (§11 first pass)
+- top-right canvas minimap built only from the visibility-filtered snapshot; `M` cycles local, sector, and hidden views; exits are drawn once seen
+
+25. Discovery-based world graph (§8)
+- every map has an undiscovered deeper exit that reserves its destination seed and archetype; the first trip through generates and persists `map-depth-<n>`
+- snapshots carry exits and the nearby exit; `E` travels, and a map's deeper exit is locked while it has an active foundry
+
 ## Summary
 
 The next phase should turn the current procedural cave prototype into a more content-ready exploration loop. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, first-pass client viewport culling, and centralized terrain material definitions. The next major unlock is using those foundations to make exploration, materials, objectives, and ship progression less placeholder-like and closer to the design document.
 
 The priority for the next phase is:
 
-1. expand the terrain/material economy from ferrite/plasma placeholders toward the GDD's rock/ore resource model
-2. harden procedural generation with validation, explicit map archetypes, safer placement, and better resource/encounter distribution (validation, archetypes, safe placement, and resource guarantees done; encounter distribution remains)
-3. start the persistent world-graph expansion path so discovered connections can generate and persist additional finite maps beyond the fixed root/deeper pair
-4. add encounter and objective variety around enemy infrastructure, defensive pockets, and foundry-adjacent pressure
-5. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression
-6. add exploration information tools such as minimap/fog summaries or scanner-style discovery only after the world/resource loop has enough content to reveal
-7. continue client performance hardening only where playtesting shows spikes, with chunk/display caching as the next rendering optimization if viewport culling is not enough
+Done in this phase: the first resource expansion (§7), generation validation and archetypes (§8), discovery-based world-graph expansion (§8), and the first-pass minimap (§11).
+
+Remaining, in recommended order:
+
+1. make combat consequential: use each enemy's `contactDamage` (a flat 4 per tick is applied today, about 120 hull per second), and add ship destruction and respawn, since a ship at 0 hull can still fly, fire, and mine (§9)
+2. add encounter and objective variety around enemy infrastructure, defensive pockets, and foundry-adjacent pressure, placed per archetype and depth (§9)
+3. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression, and make mass, power, and thrust affect play (§10)
+4. add scanner/sensor discovery tools on top of the minimap (§11)
+5. scale the world graph: branching exits, simulating only occupied maps, and wiring durable persistence (§8, Assumptions)
+6. continue client performance hardening only where playtesting shows spikes
 
 ## Key Changes
 
@@ -285,13 +308,9 @@ First implementation target:
 - generate the root map and deeper map from their existing map seeds while keeping the current ids stable: complete
 - add tests for deterministic output, required placement validity, route connectivity, and persistence reload over generated baseline maps: generation tests complete; persistence-over-generated-baseline should continue through world tests and future acceptance cases
 
-Next implementation target:
+Next implementation target (validation, archetypes, per-map generation parameters, and reload-over-baseline tests are done; see §8):
 
-- add generator validation helpers that can fail fast when a generated map lacks required connectivity or safe placement
 - tune generated layout shape so spawned foundry pressure, cover, and mining pockets are less uniform
-- consider multiple map archetypes, such as starter-safe caves, foundry arenas, and deeper resource caverns
-- expose generation parameters per biome/map summary instead of hard-coding root/deeper chunk sizes in world creation
-- add persistence-specific tests that mutate generated terrain/foundries, reload over the same generated baseline, and verify the deltas still apply cleanly
 
 ### 6. Larger-map client rendering performance
 
@@ -304,11 +323,12 @@ Status: first hardening pass complete; monitor during playtesting.
 - hidden/unexplored space now relies on the game background instead of per-tile fog rectangles
 - remembered fog, terrain, entities, projectile effects, and terrain bursts are culled to the padded camera viewport
 - snapshot handling now updates the camera before rendering so culling uses the correct world-space viewport
+- per-frame `Graphics` are destroyed with `context: true` (PR #2); any new per-frame Pixi code must do the same or reuse retained objects
+- terrain sprites and player ship displays are already retained between frames and rebuilt only when terrain or the viewport key changes
 
 Next implementation target, only if playtesting still shows periodic drops:
 
-- cache static terrain chunks as display containers instead of rebuilding terrain sprites every snapshot
-- invalidate cached chunks only when terrain cells or visibility memory for that chunk changes
+- group the retained terrain sprites into per-chunk containers so a terrain change invalidates one chunk instead of the whole viewport key
 - keep dynamic entities, projectiles, labels, and transient effects on lightweight separate layers
 - consider reducing server snapshot rate or decoupling static terrain redraw frequency from dynamic entity updates if spikes persist
 
@@ -372,7 +392,8 @@ Next implementation target:
 - give generated maps more than one deeper exit so the graph can branch, using the reserved-connection model per exit (map ids already de-duplicate)
 - place depth-appropriate enemy variety and fortifications per archetype as §9 adds enemy content
 - only simulate maps that have players on them (every loaded map currently ticks every frame), and unload idle maps once the graph grows
-- record discovered maps in each player's save (`discoveredMapIds`) so the minimap/scanner work in §11 can show what a player has charted
+- record discovered maps in each player's save (`discoveredMapIds`) so the minimap/scanner work in §11 can show what a player has charted; today only the world graph records them
+- discovered maps only persist for the life of the server process: `GameServer` constructs `GameWorld` with in-memory persistence and `POSTGRES_URL` is read but never used, so the Postgres adapter needs wiring before the world is truly persistent
 
 ### 9. Encounter, objective, and enemy infrastructure growth
 
@@ -381,6 +402,13 @@ Status: foundry objective first pass complete; variety and infrastructure behavi
 - the current foundry loop proves the basic objective gate: destroy a structure, reduce pressure, unlock the deeper path
 - the GDD calls for enemy fortification pockets, default defense rebuilding, richer enemy roles, and objective escalation
 - this should come after generation validation so encounters can be placed in reliable spaces
+
+Loose ends from the current build (do these first):
+
+- enemy contact damage ignores `EnemyDefinition.contactDamage` and applies a flat 4 hull per tick (about 120 per second at 30 Hz), so a 100-hull scout dies in under a second of contact
+- reaching 0 hull only logs "Player ship destroyed"; the ship keeps flying, firing, and mining. The GDD failure loop (§4.3: drop salvage, respawn in a fallback ship, recover) is not implemented
+- enemies have no ranged attack, and scout and sentry differ only in stats; both chase the nearest visible player in a straight line
+- foundry destruction drops a fixed reward that does not scale with depth or archetype
 
 Next implementation target:
 
@@ -408,15 +436,22 @@ Completed implementation target:
 - persist the resulting ship design as the stored ship record and replicate the active design to the world renderer so visible hull/module parts match the chosen loadout: complete
 - modifying an existing ship is instant at the ship-building location for the current pass
 
+Loose ends from the current build:
+
+- only two hulls exist (Sparrow Scout, Warden Healer) and one weapon (Pulse Cannon); there is no destroyer, miner, or heavy hull yet
+- module `mass` and `powerUse` and hull `mass` and `powerCapacity` are validated at design time but have no effect in play: every ship uses the same shared thrust and turn constants, and module use never spends power
+- weapons fire from their own hardpoint, but `Space` fires only the selected weapon slot, so a multi-weapon hull would need a fire-group rule
+
 Next implementation target:
 
 - add or tune first-pass hull/module data for the scout, healer, destroyer, miner, and heavy directions without over-expanding the roster
 - make material costs align with the new terrain/resource economy so exploration feeds ship choices
+- derive acceleration and turn rate from thrust and mass (GDD §8.3) through the shared movement code so client prediction stays in sync, and spend or cap power on module use
 - add tests for content validity, build costs, mount compatibility, module install rules, saved ship design persistence, and active-ship behavior across the expanded catalog
 
 ### 11. Exploration information and player-facing map tools
 
-Status: server-side line of sight, terrain memory, and first-pass minimap complete; sensors/scanner not started.
+Status: server-side line of sight, terrain memory, first-pass minimap, and exits on the minimap complete; sensors/scanner not started.
 
 - the GDD recommends fog-of-war minimap memory, scanner pings, and sensor modules for structure/salvage detection
 - this should follow the resource/generation pass so there is meaningful hidden information to reveal
@@ -434,7 +469,7 @@ Minimap (first pass, complete):
 
 Next implementation target:
 
-- show map connections/exits on the minimap once §8 settles how undiscovered connections are represented (needs a small snapshot addition, revealed only after the exit tile has been seen)
+- show map connections/exits on the minimap: complete (PR #6 added `exits` to snapshots)
 - prototype a scanner ping action or sensor module that reveals nearby structure, salvage, or connection hints
 - keep enemy movement hidden in unexplored fog unless a sensor rule explicitly reveals it
 - add tests for sensor visibility rules and remembered-map state persistence
@@ -505,3 +540,4 @@ Optional terrain-art follow-up checks, only if later phases reveal a need:
 - generated maps can start small and conservative; reliability, connectedness, and valid placement matter more than visual novelty in the first pass
 - resource expansion should start with a small useful material set before adding every GDD-proposed resource tier
 - discovery-based map generation should preserve deterministic seeds and persisted deltas before adding deep biome variety
+- the running server currently uses in-memory persistence only; restarts reset the world until the Postgres adapter is wired in
