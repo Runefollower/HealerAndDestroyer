@@ -3,7 +3,7 @@ import { Application, Container } from "pixi.js";
 import type { InstalledModule, ServerMessage, SnapshotMessage } from "@healer/shared";
 import { attachInputListeners, createInputState, type InputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
-import { LocalShipPredictor, predictSnapshotForRender } from "./predictSnapshot.js";
+import { WorldRenderPredictor } from "./predictSnapshot.js";
 import { createShipDesignAction, refreshBuilderTimers, renderBuilderState, updateBuilderDraft } from "./renderBuilder.js";
 import { renderHud, renderWorld, type HudSelections, type WorldRenderStats } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
@@ -65,8 +65,10 @@ export async function bootstrapClient(): Promise<void> {
   const notifications = document.getElementById("notifications")!;
   const framerate = document.getElementById("framerate")!;
   const input = createInputState();
-  // Predicts the local ship between snapshots from unacknowledged fixed-rate inputs.
-  const shipPredictor = new LocalShipPredictor();
+  // Turns the latest snapshot into wall-clock-timed render poses (local ship prediction, entity extrapolation).
+  const renderPredictor = new WorldRenderPredictor();
+  // Wall-clock times of the last held-action messages, so action cadence does not depend on frame rate.
+  const lastActionSentAt = { mining: -Infinity, support: -Infinity };
   const network = new NetworkClient();
   const store = createClientStore();
   // tick is the local frame/input counter sent to the authoritative server with client actions.
@@ -193,7 +195,7 @@ export async function bootstrapClient(): Promise<void> {
 
   network.onServerMessage((message) => {
     if (message.type === "snapshot") {
-      shipPredictor.onSnapshot(message);
+      renderPredictor.onSnapshot(message, performance.now());
     }
     // Some server messages refine the local server-time offset used by builder timers.
     const nextOffset = handleServerMessage(network, builder, hud, notifications, store, diagnostics, message, clockOffsetMs);
@@ -241,12 +243,13 @@ export async function bootstrapClient(): Promise<void> {
   // Use a temporary prototype pilot id until authentication/account selection exists.
   await network.connect(`pilot-${Math.floor(Math.random() * 10000)}`);
 
-  app.ticker.add(() => {
+  app.ticker.add((ticker) => {
     // Local ticker drives input submission, client-only UI timers, and opportunistic actions.
     const callbackStart = performance.now();
     tick += 1;
-    // Keep only the last two seconds of frame timestamps for a stable rolling FPS display.
-    const frameTime = performance.now();
+    // All animation is timed from the animation frame's own timestamp, so motion follows wall-clock time and
+    // is not shifted by how long earlier work in this frame took.
+    const frameTime = ticker.lastTime;
     recordFrameTiming(diagnostics, frameTime);
     frameTimes.push(frameTime);
     while (frameTimes.length && frameTimes[0] < frameTime - 2000) {
@@ -255,14 +258,15 @@ export async function bootstrapClient(): Promise<void> {
 
     // Movement input is sampled at the server's fixed tick rate (not per frame) so the server stays
     // authoritative and the local prediction applies exactly the same steps.
-    for (const moveInput of shipPredictor.sampleInput(frameTime, input)) {
+    const moveInputs = renderPredictor.ship.sampleInput(frameTime, input);
+    for (const moveInput of moveInputs) {
       network.send(moveInput);
     }
 
     const snapshot = store.latestSnapshot;
     if (snapshot) {
       const predictStart = performance.now();
-      const renderSnapshot = predictSnapshotForRender(snapshot, store.latestSnapshotReceivedAt, frameTime, shipPredictor);
+      const renderSnapshot = renderPredictor.render(snapshot, frameTime);
       diagnostics.predictMs = performance.now() - predictStart;
       // Camera update must happen before screen-to-world targeting.
       const renderStart = performance.now();
@@ -279,9 +283,10 @@ export async function bootstrapClient(): Promise<void> {
       diagnostics.snapshotAgeMs = store.latestSnapshotReceivedAt === null ? 0 : Math.max(0, frameTime - store.latestSnapshotReceivedAt);
       const mouseWorld = screenToWorld(worldLayer, mouseScreen);
 
-      // Actions are throttled client-side to reduce duplicate messages while controls are held.
+      // Held actions repeat on wall-clock cadences (the server enforces cooldowns). Fire requests ride along with
+      // each 30 Hz input step so shots leave at an even spacing at any frame rate.
       const weaponModule = getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon);
-      if (input.firePrimary && weaponModule && tick % 8 === 0) {
+      if (input.firePrimary && weaponModule && moveInputs.length > 0) {
         network.send({
           type: "fireWeapon",
           weaponHardpointId: weaponModule.hardpointId,
@@ -290,7 +295,8 @@ export async function bootstrapClient(): Promise<void> {
       }
 
       const miningModule = getSelectedModuleByCapability(snapshot.selfModules, "mining", store.selectedModuleHardpoints.mining);
-      if (input.activateUtility && miningModule && tick % 6 === 0) {
+      if (input.activateUtility && miningModule && frameTime - lastActionSentAt.mining >= 100) {
+        lastActionSentAt.mining = frameTime;
         network.send({
           type: "activateModule",
           moduleId: miningModule.hardpointId,
@@ -301,7 +307,8 @@ export async function bootstrapClient(): Promise<void> {
 
       const supportModule = getSelectedModuleByCapability(snapshot.selfModules, "support", store.selectedModuleHardpoints.support);
       const selfEntity = snapshot.players.find((player) => player.playerId === snapshot.selfPlayerId);
-      if (input.activateSupport && supportModule && selfEntity && tick % 10 === 0) {
+      if (input.activateSupport && supportModule && selfEntity && frameTime - lastActionSentAt.support >= 165) {
+        lastActionSentAt.support = frameTime;
         network.send({
           type: "activateModule",
           moduleId: supportModule.hardpointId,

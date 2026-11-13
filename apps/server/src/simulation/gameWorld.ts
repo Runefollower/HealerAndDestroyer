@@ -12,6 +12,7 @@ import {
   distance,
   hasEnoughResources,
   normalize,
+  PLAYER_MOVEMENT_INPUT_RATE_HZ,
   PLAYER_VELOCITY_RETENTION,
   scaleVec2,
   subtractResourceMaps,
@@ -48,9 +49,12 @@ interface PlayerSessionState {
   connectedAt: number;
   // Last client input tick applied by the simulation; echoed in snapshots so the client can reconcile.
   lastInputTick: number;
-  // Movement inputs received but not yet simulated. One is consumed per simulation tick, so ship motion
-  // advances at the fixed tick rate no matter how fast the client sends or how bursty the network is.
+  // Movement inputs received but not yet simulated. While a client is streaming input, each input is exactly
+  // one movement step (input + integration), which is the same step the client replays when predicting, so
+  // prediction and server agree regardless of network jitter or small clock differences between the two.
   pendingMoveInputs: QueuedMoveInput[];
+  // Consecutive ticks with no queued input. After a short gap the ship coasts on the server tick instead.
+  starvedTicks: number;
   // Per-session terrain memory that is written back to the player save on disconnect.
   terrainMemoryByMap: PlayerSave["terrainMemoryByMap"];
 }
@@ -59,9 +63,14 @@ interface QueuedMoveInput extends PlayerMovementInput {
   tick: number;
 }
 
-// A healthy client keeps one or two inputs queued. Past this, older inputs are applied at once so a burst
-// (or a client sending too fast) cannot build up input latency or extra movement over later ticks.
-const maxQueuedMoveInputs = 4;
+// Movement step length; every input is one step of this length on both server and client.
+const movementStepSeconds = 1 / PLAYER_MOVEMENT_INPUT_RATE_HZ;
+// With more than this many inputs queued, two are stepped per tick to catch up after a network hiccup.
+const catchUpQueueLength = 2;
+// Inputs beyond this are dropped (oldest first) so a client sending too fast cannot speed its ship up.
+const maxQueuedMoveInputs = 8;
+// A ship whose input stream pauses for longer than this coasts on the server tick, as if no keys were held.
+const maxStarvedTicks = 3;
 
 const logger = createLogger("gameWorld");
 type SubmitShipDesignMessage = Extract<BuilderActionMessage, { action: "submitShipDesign" }>;
@@ -146,6 +155,7 @@ export class GameWorld {
       connectedAt: Date.now(),
       lastInputTick: 0,
       pendingMoveInputs: [],
+      starvedTicks: maxStarvedTicks,
       terrainMemoryByMap: structuredClone(player.terrainMemoryByMap)
     });
 
@@ -288,23 +298,48 @@ export class GameWorld {
     );
   }
 
-  // Integrates player ship movement and applies simple drag after collision resolution.
+  // Advances player ships. A ship with a live input stream takes one movement step per queued input (input,
+  // then integration), matching the client's replay exactly. Without input it coasts one tick at a time.
   private tickPlayers(map: ActiveMapState, deltaSeconds: number): void {
     for (const player of Object.values(map.players)) {
-      // Input is applied before integration, matching the client's replay order in its prediction.
-      this.consumeMovementInputs(player);
-      // Resolve against terrain, structures, players, and enemies so ships cannot overlap blockers.
-      const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
-        radius: getPlayerShipCollisionRadius(player),
-        excludeEntityId: player.id,
-        includePlayers: true,
-        includeEnemies: true
-      });
-      player.position = resolved.position;
-      player.velocity = resolved.velocity;
-      player.velocity.x *= PLAYER_VELOCITY_RETENTION;
-      player.velocity.y *= PLAYER_VELOCITY_RETENTION;
+      const session = this.sessions.get(player.playerId);
+      const queued = session?.pendingMoveInputs ?? [];
+      if (!session || queued.length === 0) {
+        if (session) {
+          session.starvedTicks += 1;
+        }
+        // A brief gap is normal network jitter: hold position and let the next inputs catch up. A longer
+        // gap means the client stopped sending (tab hidden, disconnected), so keep the ship drifting.
+        if (!session || session.starvedTicks > maxStarvedTicks) {
+          this.stepPlayerMovement(map, player, deltaSeconds);
+        }
+        continue;
+      }
+
+      session.starvedTicks = 0;
+      const stepCount = queued.length > catchUpQueueLength ? 2 : 1;
+      for (const input of queued.splice(0, stepCount)) {
+        applyPlayerMovementInput(player, input);
+        session.lastInputTick = input.tick;
+        this.stepPlayerMovement(map, player, movementStepSeconds);
+      }
     }
+  }
+
+  // Integrates one player ship step with collision resolution and drag.
+  private stepPlayerMovement(map: ActiveMapState, player: ActiveMapState["players"][string], deltaSeconds: number): void {
+    // Resolve against terrain, structures, players, and enemies so ships cannot overlap blockers.
+    const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
+      radius: getPlayerShipCollisionRadius(player),
+      excludeEntityId: player.id,
+      includePlayers: true,
+      includeEnemies: true
+    });
+    player.position = resolved.position;
+    player.velocity = resolved.velocity;
+    const retention = PLAYER_VELOCITY_RETENTION ** (deltaSeconds * PLAYER_MOVEMENT_INPUT_RATE_HZ);
+    player.velocity.x *= retention;
+    player.velocity.y *= retention;
   }
 
   // Advances projectiles, applies impact damage, creates drops, and removes expired projectiles.
@@ -477,18 +512,8 @@ export class GameWorld {
       rotateRight: input.rotateRight,
       tick: input.tick
     });
-  }
-
-  // Applies this tick's queued movement input: one sample per tick, plus any backlog beyond the cap.
-  private consumeMovementInputs(player: ActiveMapState["players"][string]): void {
-    const session = this.sessions.get(player.playerId);
-    if (!session || session.pendingMoveInputs.length === 0) {
-      return;
-    }
-    const applyCount = Math.max(1, session.pendingMoveInputs.length - maxQueuedMoveInputs + 1);
-    for (const input of session.pendingMoveInputs.splice(0, applyCount)) {
-      applyPlayerMovementInput(player, input);
-      session.lastInputTick = input.tick;
+    if (session.pendingMoveInputs.length > maxQueuedMoveInputs) {
+      session.pendingMoveInputs.splice(0, session.pendingMoveInputs.length - maxQueuedMoveInputs);
     }
   }
 

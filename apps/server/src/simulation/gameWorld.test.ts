@@ -60,28 +60,51 @@ describe("GameWorld", () => {
     expect(Math.abs(player.position.y - startY)).toBeGreaterThan(Math.abs(player.position.x - startX));
   });
 
-  it("applies one movement input per tick regardless of how fast the client sends them", async () => {
+  it("steps the ship once per queued input and catches up gradually after a burst", async () => {
     const world = new GameWorld();
     await world.initialize();
     await world.connectPlayer("player-1");
     const player = world.runtime.maps["map-root"].players["player-1"];
     player.rotation = 0;
 
-    // Three inputs arriving in one burst turn the ship one step per tick, not three steps at once.
+    // Three inputs arriving in one burst are not applied all at once.
     for (const tick of [1, 2, 3]) {
       await world.handleMessage("player-1", { type: "moveInput", thrustForward: false, thrustReverse: false, rotateLeft: false, rotateRight: true, tick });
     }
     // A duplicate or out-of-order input is ignored.
     await world.handleMessage("player-1", { type: "moveInput", thrustForward: false, thrustReverse: false, rotateLeft: false, rotateRight: true, tick: 2 });
 
+    // The backlog is above the catch-up threshold, so the first tick steps twice, then once.
     await world.tick();
-    expect(player.rotation).toBeCloseTo(PLAYER_ROTATION_STEP, 5);
-    expect(world.getSnapshot("player-1").lastProcessedInputTick).toBe(1);
-    await world.tick();
-    await world.tick();
+    expect(player.rotation).toBeCloseTo(2 * PLAYER_ROTATION_STEP, 5);
+    expect(world.getSnapshot("player-1").lastProcessedInputTick).toBe(2);
     await world.tick();
     expect(player.rotation).toBeCloseTo(3 * PLAYER_ROTATION_STEP, 5);
     expect(world.getSnapshot("player-1").lastProcessedInputTick).toBe(3);
+  });
+
+  it("holds a streaming ship through a short input gap and coasts after a long one", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+    const player = world.runtime.maps["map-root"].players["player-1"];
+    player.position = { x: 128, y: 128 };
+    player.rotation = 0;
+
+    await world.handleMessage("player-1", { type: "moveInput", thrustForward: true, thrustReverse: false, rotateLeft: false, rotateRight: false, tick: 1 });
+    await world.tick();
+    const afterInput = player.position.x;
+    expect(afterInput).toBeGreaterThan(128);
+
+    // A short gap is jitter: the ship waits for the next input instead of taking steps the client won't replay.
+    await world.tick();
+    expect(player.position.x).toBe(afterInput);
+
+    // A long gap means the client stopped sending, so the ship keeps drifting.
+    for (let tick = 0; tick < 5; tick += 1) {
+      await world.tick();
+    }
+    expect(player.position.x).toBeGreaterThan(afterInput);
   });
 
   it("allows a higher sustained player speed while keeping thrust input incremental", async () => {
