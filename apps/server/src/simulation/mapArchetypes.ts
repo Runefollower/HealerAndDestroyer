@@ -19,6 +19,15 @@ export interface MapValidationRules {
   minMaterialCounts: Partial<Record<number, number>>;
 }
 
+// MapContentConfig says what gameplay content a discovered map of this archetype is populated with.
+// The fixed root map places its own builder and foundry in createWorld.ts and ignores this.
+export interface MapContentConfig {
+  // foundry places an enemy foundry at the layout's foundry anchor, or null for no foundry. Health is
+  // the content definition's maxHealth times healthMultiplier, scaled up further by map depth.
+  // While a map has an active foundry its deeper exit stays locked.
+  foundry: { healthMultiplier: number; spawnCap: number; spawnCooldownMs: number } | null;
+}
+
 export interface MapGenerationConfig {
   archetypeId: MapArchetypeId;
   // label is a short designer-facing name for logs and tooling.
@@ -45,6 +54,7 @@ export interface MapGenerationConfig {
   // unstableCrystalTileArea is the map area (tiles) per single volatile crystal.
   unstableCrystalTileArea: number;
   validation: MapValidationRules;
+  content: MapContentConfig;
 }
 
 // defaultValidationRules are shared by every archetype unless an archetype overrides a field.
@@ -61,6 +71,9 @@ const defaultValidationRules: MapValidationRules = {
   }
 };
 
+// standardFoundryContent matches the root foundry's tuning.
+const standardFoundryContent: MapContentConfig = { foundry: { healthMultiplier: 1, spawnCap: 3, spawnCooldownMs: 3000 } };
+
 // baseCaveConfig holds the original prototype tuning; the starter and deep caves keep it so the
 // existing root and deeper maps stay recognisable.
 const baseCaveConfig = {
@@ -76,7 +89,8 @@ const baseCaveConfig = {
   ancientStoneChance: 0.1,
   orePocketPlacementChance: 0.65,
   unstableCrystalTileArea: 900,
-  validation: defaultValidationRules
+  validation: defaultValidationRules,
+  content: standardFoundryContent
 };
 
 // mapArchetypes is the generation config table. Add new map types here rather than in generator code.
@@ -95,7 +109,9 @@ export const mapArchetypes: Record<MapArchetypeId, MapGenerationConfig> = {
     archetypeId: "deep-cavern",
     label: "Deep cavern",
     widthInChunks: 10,
-    heightInChunks: 8
+    heightInChunks: 8,
+    // A quiet cave between fights: no foundry, so its deeper exit is open on arrival.
+    content: { foundry: null }
   },
   // Foundry arena: fewer, larger rooms and a big foundry chamber for fortification encounters.
   "foundry-arena": {
@@ -111,6 +127,8 @@ export const mapArchetypes: Record<MapArchetypeId, MapGenerationConfig> = {
     roomSizeVariance: 8,
     orePocketTileArea: 160,
     plasmaChance: 0.12,
+    // A fortified foundry that takes longer to break and fields more defenders.
+    content: { foundry: { healthMultiplier: 2, spawnCap: 5, spawnCooldownMs: 2500 } },
     validation: {
       ...defaultValidationRules,
       anchorClearanceTiles: 2,
@@ -133,6 +151,8 @@ export const mapArchetypes: Record<MapArchetypeId, MapGenerationConfig> = {
     ancientStoneChance: 0.12,
     orePocketPlacementChance: 0.75,
     unstableCrystalTileArea: 600,
+    // Mining run with no foundry pressure.
+    content: { foundry: null },
     validation: {
       ...defaultValidationRules,
       minMaterialCounts: {
@@ -154,7 +174,8 @@ export const mapArchetypes: Record<MapArchetypeId, MapGenerationConfig> = {
     randomRoomChunkAreaDivisor: 3,
     roomSizeMin: 4,
     roomSizeVariance: 4,
-    orePocketTileArea: 130
+    orePocketTileArea: 130,
+    content: { foundry: { healthMultiplier: 1, spawnCap: 3, spawnCooldownMs: 3500 } }
   }
 };
 
@@ -179,3 +200,18 @@ export const prototypeMaps = {
   root: { mapId: "map-root", seed: "root-seed", archetypeId: "starter-cavern" },
   deeper: { mapId: "map-depth-1", seed: "depth-seed", archetypeId: "deep-cavern" }
 } as const satisfies Record<string, PrototypeMapDefinition>;
+
+// discoveredArchetypePools lists which archetypes a newly discovered map can roll at each depth.
+// The deepest entry whose minDepth is <= the new map's depth is used. Add tiers here as content grows.
+export const discoveredArchetypePools: Array<{ minDepth: number; archetypes: MapArchetypeId[] }> = [
+  { minDepth: 1, archetypes: ["deep-cavern"] },
+  { minDepth: 2, archetypes: ["tunnel-network", "resource-cavern", "deep-cavern"] },
+  { minDepth: 3, archetypes: ["foundry-arena", "tunnel-network", "resource-cavern", "deep-cavern"] }
+];
+
+// Picks the archetype for a newly discovered map at the given depth. roll is in [0, 1) and should come
+// from the map's reserved seed so the choice is deterministic.
+export function chooseArchetypeForDepth(depth: number, roll: number): MapArchetypeId {
+  const pool = [...discoveredArchetypePools].reverse().find((entry) => depth >= entry.minDepth) ?? discoveredArchetypePools[0];
+  return pool.archetypes[Math.min(pool.archetypes.length - 1, Math.floor(roll * pool.archetypes.length))];
+}

@@ -15,6 +15,7 @@ import {
 } from "@healer/shared";
 import { prototypeMaps, type PrototypeMapDefinition } from "./mapArchetypes.js";
 import { generateMapLayout, type GeneratedMapLayout } from "./mapGeneration.js";
+import { createUndiscoveredExit } from "./worldGraph.js";
 
 export { CHUNK_SIZE } from "./mapGeneration.js";
 
@@ -36,6 +37,15 @@ function createRootConnection(): MapConnection {
     type: "tunnel",
     discovered: true
   };
+}
+
+const worldSeed = "alpha-seed";
+
+// Reserves the undiscovered exit at the bottom of the deeper prototype map; the first player through
+// it generates the next map in the world graph.
+function createDeeperExit(): MapConnection {
+  const deeperLayout = generatePrototypeLayout(prototypeMaps.deeper);
+  return createUndiscoveredExit(worldSeed, prototypeMaps.deeper.mapId, 1, deeperLayout.sourceAnchor);
 }
 
 // Creates the starter foundry that acts as the root-map objective gate.
@@ -66,18 +76,19 @@ export function createWorldGraph(worldId = asWorldId("world-alpha")): Persistent
   const rootMapId = asMapId(prototypeMaps.root.mapId);
   const deeperMapId = asMapId(prototypeMaps.deeper.mapId);
   const connection = createRootConnection();
+  const deeperExit = createDeeperExit();
 
   return {
     id: worldId,
     name: "Alpha Cavern",
-    seed: "alpha-seed",
+    seed: worldSeed,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     graph: {
       worldId,
       rootMapId,
       discoveredMapIds: [rootMapId, deeperMapId],
-      connectionIndex: { [connection.id]: connection },
+      connectionIndex: { [connection.id]: connection, [deeperExit.id]: deeperExit },
       activeMapIds: [rootMapId]
     },
     maps: {
@@ -87,15 +98,17 @@ export function createWorldGraph(worldId = asWorldId("world-alpha")): Persistent
         status: "active",
         connectionIds: [connection.id],
         lastActivatedAt: Date.now(),
-        biomeId: prototypeMaps.root.archetypeId
+        biomeId: prototypeMaps.root.archetypeId,
+        depth: 0
       },
       [deeperMapId]: {
         id: deeperMapId,
         seed: prototypeMaps.deeper.seed,
         status: "discovered",
-        connectionIds: [connection.id],
+        connectionIds: [connection.id, deeperExit.id],
         lastActivatedAt: null,
-        biomeId: prototypeMaps.deeper.archetypeId
+        biomeId: prototypeMaps.deeper.archetypeId,
+        depth: 1
       }
     },
     playerIds: [],
@@ -169,7 +182,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       structures: {},
       foundries: {},
       drops: {},
-      connections: [connection]
+      connections: [connection, createDeeperExit()]
     }
   };
 }

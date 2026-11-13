@@ -1,4 +1,12 @@
-import { getTerrainMaterialDefinition, isEmptyTerrainCell, selectTerrainVariant, type PlayerSnapshot, type ProjectileSnapshot, type SnapshotMessage } from "@healer/shared";
+import {
+  getTerrainMaterialDefinition,
+  isEmptyTerrainCell,
+  selectTerrainVariant,
+  type ExitSnapshot,
+  type PlayerSnapshot,
+  type ProjectileSnapshot,
+  type SnapshotMessage
+} from "@healer/shared";
 import { Container, Graphics, Sprite, Text, type Container as PixiContainer, type DestroyOptions } from "pixi.js";
 import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
@@ -185,11 +193,12 @@ export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized
       <div>Foundries nearby: ${snapshot.foundries.length}</div>
       <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
       <div>Deeper path unlocked: ${snapshot.deeperPathUnlocked ? "yes" : "destroy the foundry"}</div>
+      <div>Exit nearby: ${describeNearbyExit(snapshot)}</div>
       <div>Weapon slot: ${selections.weapon}</div>
       <div>Mining slot: ${selections.mining}</div>
       <div>Support slot: ${selections.support}</div>
       <div>${inventoryEntries}</div>
-      <div>Controls: WASD move, Space fire, right click mine, left click repair, E interact</div>
+      <div>Controls: WASD move, Space fire, right click mine, left click repair, E interact or travel</div>
       <div>Selection: 1 cycle weapon, 2 cycle mining, 3 cycle support</div>
     </div>
   `;
@@ -224,6 +233,13 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     const sprite = createStructureDisplay(structure.structureTypeId);
     sprite.position.set(structure.position.x, structure.position.y);
     layers.dynamicLayer.addChild(sprite);
+  }
+
+  for (const exit of snapshot.exits) {
+    if (!isPointInViewport(exit.position.x, exit.position.y, paddedViewport)) {
+      continue;
+    }
+    layers.dynamicLayer.addChild(createExitDisplay(exit, exit.connectionId === snapshot.nearbyExitId, now));
   }
 
   for (const foundry of snapshot.foundries) {
@@ -836,6 +852,45 @@ function createVisibilityOverlay(snapshot: SnapshotMessage, viewport: WorldViewp
   return container;
 }
 
+// Exit marker colors: locked (red), uncharted deeper exit (amber), charted deeper exit (cyan), way back up (green).
+const exitColors = { locked: 0xff6b5b, uncharted: 0xffc857, charted: 0x5bd7ff, ascend: 0x7ee08a };
+
+// Returns the short label shown on an exit marker.
+export function describeExit(exit: ExitSnapshot): string {
+  if (exit.direction === "ascend") {
+    return "Way back up";
+  }
+  if (exit.locked) {
+    return "Exit locked";
+  }
+  return exit.discovered ? "Descend" : "Uncharted depths";
+}
+
+// Draws a pulsing ring at a map exit, with its label and the interact prompt when the ship is in range.
+function createExitDisplay(exit: ExitSnapshot, nearby: boolean, now: number): Container {
+  const color =
+    exit.direction === "ascend" ? exitColors.ascend : exit.locked ? exitColors.locked : exit.discovered ? exitColors.charted : exitColors.uncharted;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 380);
+  const container = new Container();
+  container.position.set(exit.position.x, exit.position.y);
+
+  const ring = new Graphics();
+  ring.circle(0, 0, 22).fill({ color, alpha: 0.12 + 0.1 * pulse });
+  ring.circle(0, 0, 22).stroke({ color, width: 2, alpha: 0.85 });
+  ring.circle(0, 0, 13 + 4 * pulse).stroke({ color, width: 1.5, alpha: 0.6 });
+  container.addChild(ring);
+
+  const label = new Text({
+    text: nearby && !exit.locked ? `${describeExit(exit)} [E]` : describeExit(exit),
+    style: { fontSize: 12, fill: color }
+  });
+  label.anchor.set(0.5, 1);
+  // Sits above the ship's own name label when the ship is parked on the exit.
+  label.position.set(0, -40);
+  container.addChild(label);
+  return container;
+}
+
 // Produces the current objective sentence from progression and visible foundry state.
 function describeObjective(snapshot: SnapshotMessage): string {
   const activeFoundry = snapshot.foundries.find((foundry) => foundry.active);
@@ -843,14 +898,27 @@ function describeObjective(snapshot: SnapshotMessage): string {
     if (activeFoundry) {
       return "Destroy the active enemy foundry to unlock the deeper route.";
     }
+    if (snapshot.mapId !== "map-root") {
+      return "A foundry seals the way deeper. Find it and destroy it.";
+    }
     return "Push through the root sector and locate the foundry objective.";
   }
 
   if (snapshot.mapId === "map-root") {
-    return "The deeper route is open. Move to the gate and descend when ready.";
+    return "The deeper route is open. Fly to the exit and press E to descend.";
   }
 
-  return "Hold the deeper cavern, gather salvage, and keep the fleet supplied.";
+  const deeperExit = snapshot.exits.find((exit) => exit.direction === "descend");
+  if (deeperExit && !deeperExit.discovered) {
+    return "An uncharted exit leads deeper. Fly to it and press E to chart a new cavern.";
+  }
+  return "Hold the cavern, gather salvage, and push deeper when the fleet is ready.";
+}
+
+// Produces the HUD line for the exit the ship is close enough to use, if any.
+function describeNearbyExit(snapshot: SnapshotMessage): string {
+  const exit = snapshot.exits.find((entry) => entry.connectionId === snapshot.nearbyExitId);
+  return exit ? `${describeExit(exit)}${exit.locked ? "" : " (press E)"}` : "no";
 }
 
 // Produces foundry health/defender status copy for the HUD.

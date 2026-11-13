@@ -74,7 +74,9 @@ class FakeServer {
       inventory: {},
       selfModules: [],
       builderSiteNearby: false,
-      deeperPathUnlocked: false
+      deeperPathUnlocked: false,
+      exits: [],
+      nearbyExitId: null
     };
   }
 }

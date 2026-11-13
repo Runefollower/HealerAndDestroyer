@@ -2,6 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PLAYER_ROTATION_STEP, TERRAIN_CELL_TYPES, asPlayerId, distance } from "@healer/shared";
 import { GameWorld } from "./gameWorld.js";
 import { getPlayerShipCollisionRadius, getStructureCollisionRadius, isPositionBlocked } from "./collision.js";
+import { exitPositionOnMap } from "./worldGraph.js";
+
+// Parks a connected player's ship on an exit of their current map so changeMap passes the range check.
+function moveToExit(world: GameWorld, rawPlayerId: string, connectionId: string): void {
+  const map = Object.values(world.runtime.maps).find((entry) => entry.players[rawPlayerId]);
+  const connection = map?.connections.find((entry) => entry.id === connectionId);
+  const position = map && connection ? exitPositionOnMap(connection, map.id) : null;
+  if (!map || !position) {
+    throw new Error(`Exit ${connectionId} is not on the player's map.`);
+  }
+  map.players[rawPlayerId].position = { ...position };
+  map.players[rawPlayerId].velocity = { x: 0, y: 0 };
+}
 
 describe("GameWorld", () => {
   beforeEach(() => {
@@ -399,6 +412,8 @@ describe("GameWorld", () => {
     await world.initialize();
     await world.connectPlayer("player-1");
 
+    moveToExit(world, "player-1", "conn-root-depth-1");
+
     await world.handleMessage("player-1", {
       type: "changeMap",
       connectionId: "conn-root-depth-1"
@@ -409,6 +424,8 @@ describe("GameWorld", () => {
         code: "deeper_path_locked"
       })
     );
+
+    moveToExit(world, "player-1", "conn-root-depth-1");
 
     await world.handleMessage("player-1", {
       type: "changeMap",
@@ -699,6 +716,8 @@ describe("GameWorld", () => {
     foundry.active = false;
     foundry.buildState = "destroyed";
 
+    moveToExit(world, "player-1", "conn-root-depth-1");
+
     await world.handleMessage("player-1", {
       type: "changeMap",
       connectionId: "conn-root-depth-1"
@@ -805,6 +824,7 @@ describe("GameWorld", () => {
     );
 
     // Transition into the deeper map and verify the destination resolves to a legal position.
+    moveToExit(world, "player-1", "conn-root-depth-1");
     await world.handleMessage("player-1", {
       type: "changeMap",
       connectionId: "conn-root-depth-1"
@@ -846,6 +866,8 @@ describe("GameWorld", () => {
     const rootMap = world.runtime.maps["map-root"];
     const initialEnemyCount = Object.keys(rootMap.enemies).length;
     expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(false);
+
+    moveToExit(world, "player-1", "conn-root-depth-1");
 
     await world.handleMessage("player-1", {
       type: "changeMap",
@@ -899,10 +921,149 @@ describe("GameWorld", () => {
 
     expect(Object.values(reloadedWorld.runtime.maps["map-root"].foundries)[0]?.buildState).toBe("destroyed");
 
+    moveToExit(reloadedWorld, "player-1", "conn-root-depth-1");
+
     await reloadedWorld.handleMessage("player-1", {
       type: "changeMap",
       connectionId: "conn-root-depth-1"
     });
     expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-1");
+  });
+
+  it("generates a new map the first time a player goes through an undiscovered exit, and keeps it across reloads", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+
+    // Clear the root gate and descend to the deeper prototype map.
+    const rootFoundry = Object.values(world.runtime.maps["map-root"].foundries)[0];
+    rootFoundry.active = false;
+    rootFoundry.buildState = "destroyed";
+    moveToExit(world, "player-1", "conn-root-depth-1");
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-root-depth-1" });
+    expect(world.getSnapshot("player-1").mapId).toBe("map-depth-1");
+
+    // The deeper map lists its undiscovered exit, and the return exit back to root.
+    const depthSnapshot = world.getSnapshot("player-1");
+    expect(depthSnapshot.exits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ connectionId: "conn-root-depth-1", direction: "ascend", discovered: true, locked: false }),
+        expect.objectContaining({ connectionId: "conn-map-depth-1-down", direction: "descend", discovered: false, locked: false })
+      ])
+    );
+    expect(depthSnapshot.nearbyExitId).toBe("conn-root-depth-1");
+
+    // Travel is refused from across the map.
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-map-depth-1-down" });
+    expect(world.drainPendingMessages("player-1")).toContainEqual(expect.objectContaining({ code: "map_exit_out_of_range" }));
+    expect(world.runtime.maps["map-depth-2"]).toBeUndefined();
+
+    moveToExit(world, "player-1", "conn-map-depth-1-down");
+    expect(world.getSnapshot("player-1").nearbyExitId).toBe("conn-map-depth-1-down");
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-map-depth-1-down" });
+
+    const generated = world.runtime.maps["map-depth-2"];
+    expect(generated).toBeDefined();
+    expect(world.getSnapshot("player-1").mapId).toBe("map-depth-2");
+    expect(world.drainPendingMessages("player-1")).toContainEqual(expect.objectContaining({ code: "map_discovered" }));
+    const arrived = generated.players["player-1"];
+    expect(
+      isPositionBlocked(generated, arrived.position, getPlayerShipCollisionRadius(arrived), {
+        excludeEntityId: arrived.id,
+        includePlayers: true,
+        includeEnemies: true
+      })
+    ).toBe(false);
+
+    // The world graph and the new map are persisted.
+    const storedWorld = await world.persistence.worlds.getWorld(world.worldId);
+    expect(storedWorld?.maps["map-depth-2"]).toMatchObject({ depth: 2, status: "discovered" });
+    expect(storedWorld?.graph.connectionIndex["conn-map-depth-1-down"]).toMatchObject({ discovered: true, destinationMapId: "map-depth-2" });
+    expect(storedWorld?.graph.connectionIndex["conn-map-depth-2-down"]?.discovered).toBe(false);
+
+    // Going back up and down again reuses the same map instead of generating another one.
+    moveToExit(world, "player-1", "conn-map-depth-1-down");
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-map-depth-1-down" });
+    expect(world.getSnapshot("player-1").mapId).toBe("map-depth-1");
+    moveToExit(world, "player-1", "conn-map-depth-1-down");
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-map-depth-1-down" });
+    expect(world.runtime.maps["map-depth-2"]).toBe(generated);
+    expect(Object.keys(world.runtime.maps)).toHaveLength(3);
+
+    // Mine a cell, disconnect, and reload: the generated map comes back with the edit and the player on it.
+    const chunk = generated.chunks["0,0"];
+    chunk.cells[0] = 0;
+    chunk.dirty = true;
+    await world.disconnectPlayer("player-1");
+
+    const reloadedWorld = new GameWorld(world.persistence);
+    await reloadedWorld.initialize();
+    await reloadedWorld.connectPlayer("player-1");
+    expect(reloadedWorld.getSnapshot("player-1").mapId).toBe("map-depth-2");
+    expect(reloadedWorld.runtime.maps["map-depth-2"].chunks["0,0"].cells[0]).toBe(0);
+    expect(reloadedWorld.getSnapshot("player-1").exits.map((exit) => exit.connectionId).sort()).toEqual(
+      ["conn-map-depth-1-down", "conn-map-depth-2-down"].sort()
+    );
+  });
+
+  it("locks a discovered map's deeper exit while its foundry is active", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    await world.connectPlayer("player-1");
+    const rootFoundry = Object.values(world.runtime.maps["map-root"].foundries)[0];
+    rootFoundry.active = false;
+    rootFoundry.buildState = "destroyed";
+
+    // Force the next map to be a foundry arena so it is guaranteed a foundry.
+    const exit = world.runtime.maps["map-depth-1"].connections.find((entry) => entry.id === "conn-map-depth-1-down");
+    if (!exit) {
+      throw new Error("Expected the deeper exit.");
+    }
+    exit.destinationArchetypeId = "foundry-arena";
+
+    for (const connectionId of ["conn-root-depth-1", "conn-map-depth-1-down"]) {
+      moveToExit(world, "player-1", connectionId);
+      await world.handleMessage("player-1", { type: "changeMap", connectionId });
+    }
+    const arena = world.runtime.maps["map-depth-2"];
+    const arenaFoundry = Object.values(arena.foundries)[0];
+    expect(arenaFoundry?.active).toBe(true);
+    expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(false);
+    expect(world.getSnapshot("player-1").exits).toContainEqual(
+      expect.objectContaining({ connectionId: "conn-map-depth-2-down", direction: "descend", locked: true })
+    );
+
+    world.drainPendingMessages("player-1");
+    moveToExit(world, "player-1", "conn-map-depth-2-down");
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-map-depth-2-down" });
+    expect(world.drainPendingMessages("player-1")).toContainEqual(expect.objectContaining({ code: "deeper_path_locked" }));
+    expect(world.runtime.maps["map-depth-3"]).toBeUndefined();
+
+    arenaFoundry.active = false;
+    arenaFoundry.buildState = "destroyed";
+    await world.handleMessage("player-1", { type: "changeMap", connectionId: "conn-map-depth-2-down" });
+    expect(world.getSnapshot("player-1").mapId).toBe("map-depth-3");
+  });
+
+  it("adds the deeper exit to a world saved before exits could be discovered", async () => {
+    const world = new GameWorld();
+    await world.initialize();
+    const stored = await world.persistence.worlds.getWorld(world.worldId);
+    if (!stored) {
+      throw new Error("Expected a stored world.");
+    }
+    // Recreate the old saved shape: no deeper exit and no map depths.
+    delete stored.graph.connectionIndex["conn-map-depth-1-down"];
+    for (const summary of Object.values(stored.maps)) {
+      delete summary.depth;
+    }
+    await world.persistence.worlds.saveWorld(stored);
+
+    const reloadedWorld = new GameWorld(world.persistence);
+    await reloadedWorld.initialize();
+    const migrated = await reloadedWorld.persistence.worlds.getWorld(world.worldId);
+    expect(migrated?.graph.connectionIndex["conn-map-depth-1-down"]?.discovered).toBe(false);
+    expect(migrated?.maps["map-depth-1"].depth).toBe(1);
+    expect(reloadedWorld.runtime.maps["map-depth-1"].connections.map((entry) => entry.id)).toContain("conn-map-depth-1-down");
   });
 });

@@ -338,11 +338,11 @@ Next implementation target:
 
 ### 8. Procedural generation hardening and world graph expansion
 
-Status: validation and archetypes complete; discovery-based world-graph expansion next.
+Status: validation, archetypes, and discovery-based world-graph expansion complete; tuning and richer graph shapes next.
 
 - the GDD recommends a graph of finite persistent cave maps, with each map carrying its own seed, layout, objectives, persistence state, and saved connections
-- the prototype currently has a fixed root map and fixed deeper map generated from stable seeds
-- generation now fails fast on bad layouts and is driven by named archetype configs, so new maps can be generated from just a seed and archetype id
+- the world now starts with the fixed root map and fixed deeper map, and grows a chain of generated maps as players push through undiscovered exits
+- generation fails fast on bad layouts and is driven by named archetype configs, so new maps are generated from just a seed and archetype id
 
 Completed implementation target:
 
@@ -353,11 +353,26 @@ Completed implementation target:
 - materials are topped up on exposed walls when random placement falls short, so each archetype's minimum resource counts are guaranteed: complete
 - tests sweep every archetype across many seeds, cover each validation rule, confirm maps regenerate from their persisted summary, restore persisted chunk edits over a regenerated baseline, and pin root/deeper terrain fingerprints: complete
 
+Completed implementation target (discovery-based expansion):
+
+- every map has one deeper exit at its layout's exit anchor. Until someone uses it, the exit is an undiscovered `MapConnection` that reserves `destinationSeed` (`<world seed>/<connection id>`) and `destinationArchetypeId`, so what lies behind it does not depend on who opens it or when: complete
+- the first trip through an undiscovered exit generates the map (`worldGraph.ts` `discoverExit`), retrying the reserved seed with a numbered suffix if validation rejects it, records the summary (seed, archetype, `depth`) and connection in the world graph, gives the new map its own undiscovered deeper exit, and persists the world and map state before the player arrives. Generation takes a few milliseconds: complete
+- map ids for discovered maps are `map-depth-<n>`; summaries carry `depth` (root 0, deeper prototype 1): complete
+- archetypes for discovered maps are rolled from the reserved seed out of per-depth pools (`discoveredArchetypePools`): depth 2 rolls tunnel network, resource cavern, or deep cavern; depth 3+ adds foundry arena: complete
+- archetype `content` config places foundries on discovered maps (tunnel network and foundry arena have one, deep and resource caverns do not). Foundry health scales by 25% per depth past 1, and foundry arenas are double health with more defenders: complete
+- the deeper-exit lock generalizes the root rule: any map's deeper exit is locked while that map has an active foundry. `deeperPathUnlocked` in snapshots now describes the player's current map: complete
+- connections can be travelled both ways; the destination end of a connection is the way back up. Travel now requires the ship to be within about two tiles of the exit (`EXIT_TRAVEL_RADIUS`): complete
+- on startup, maps discovered in earlier sessions are regenerated from their summaries before persisted deltas are replayed, and worlds saved before this change get the missing deeper exit and map depths added: complete
+- snapshots carry `exits` (position, ascend/descend, discovered, locked) and `nearbyExitId`. The client draws exit rings with labels and E travels through a nearby exit when no builder site is in range (previously the client had no way to change maps at all): complete
+- tests cover reservation determinism, archetype pools, chained discovery to depth 7, discovery through `GameWorld` (range check, generation, reuse on return trips, reload with mined terrain and the player on the generated map), foundry locks on a discovered foundry arena, and migration of an old saved world: complete
+
 Next implementation target:
 
-- prepare connection records so undiscovered exits can reserve a destination seed and archetype, then generate a persistent map when first used
-- choose archetypes for discovered maps (for example by depth) and place foundry/fortification content according to archetype
-- tune the new archetypes through playtesting once they appear in the world graph
+- tune the archetypes and depth pools through playtesting now that they appear in the world graph
+- give generated maps more than one deeper exit so the graph can branch, using the reserved-connection model per exit (map ids already de-duplicate)
+- place depth-appropriate enemy variety and fortifications per archetype as §9 adds enemy content
+- only simulate maps that have players on them (every loaded map currently ticks every frame), and unload idle maps once the graph grows
+- record discovered maps in each player's save (`discoveredMapIds`) so the minimap/scanner work in §11 can show what a player has charted
 
 ### 9. Encounter, objective, and enemy infrastructure growth
 

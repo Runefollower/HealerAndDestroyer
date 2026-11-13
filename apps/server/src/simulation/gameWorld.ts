@@ -21,6 +21,8 @@ import {
   type ActiveMapState,
   type BuilderActionMessage,
   type ChangeMapMessage,
+  type ExitSnapshot,
+  type MapConnection,
   type FireWeaponMessage,
   type InstalledModule,
   type InteractMessage,
@@ -39,6 +41,17 @@ import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
 import { damageTerrainAt } from "./terrain.js";
+import { generateMapLayout, tileToWorld, type GeneratedMapLayout } from "./mapGeneration.js";
+import { getMapArchetype } from "./mapArchetypes.js";
+import {
+  EXIT_TRAVEL_RADIUS,
+  buildDiscoveredMap,
+  connectionsForMap,
+  discoverExit,
+  ensureUndiscoveredExits,
+  exitPositionOnMap,
+  findNearbyExit
+} from "./worldGraph.js";
 import { buildPlayerVisibilityView, findNearestVisiblePlayer } from "./visibility.js";
 import { createBuilderState, createRuntimeShip, resolveActiveShip, syncCompletedShipBuilds, syncPlayerSaveFromRuntime, syncRuntimeInventoryFromSave, syncRuntimeShipFromSave } from "./shipLifecycle.js";
 
@@ -104,7 +117,38 @@ export class GameWorld {
     // Load the persistent graph first because map persistence needs the map summaries inside it.
     const storedWorld = await this.persistence.worlds.getWorld(this.worldId);
     this.persistentWorld = storedWorld ?? createWorldGraph(this.worldId);
-    if (!storedWorld) {
+    let worldChanged = !storedWorld;
+
+    // Worlds saved before discovery existed lack map depths; they only ever held root and the deeper map.
+    for (const summary of Object.values(this.persistentWorld.maps)) {
+      if (summary.depth === undefined) {
+        summary.depth = summary.id === this.persistentWorld.graph.rootMapId ? 0 : 1;
+        worldChanged = true;
+      }
+    }
+
+    // Maps discovered in earlier sessions are not in the prototype runtime template, so regenerate their
+    // baselines from seed + archetype. Layouts are also needed to place any missing undiscovered exits.
+    const layouts: Record<string, GeneratedMapLayout> = {};
+    for (const summary of Object.values(this.persistentWorld.maps)) {
+      const needsRuntime = !this.runtime.maps[summary.id];
+      const needsExit = !Object.values(this.persistentWorld.graph.connectionIndex).some((entry) => entry.sourceMapId === summary.id);
+      if (!needsRuntime && !needsExit) {
+        continue;
+      }
+      const layout = generateMapLayout(summary.seed, summary.biomeId ?? "deep-cavern");
+      layouts[summary.id] = layout;
+      if (needsRuntime) {
+        this.runtime.maps[summary.id] = buildDiscoveredMap(summary, layout);
+      }
+    }
+    worldChanged = ensureUndiscoveredExits(this.persistentWorld, layouts) || worldChanged;
+
+    // Runtime maps share the graph's connection objects, so discovering an exit updates both sides at once.
+    for (const map of Object.values(this.runtime.maps)) {
+      map.connections = connectionsForMap(this.persistentWorld, map.id);
+    }
+    if (worldChanged) {
       await this.persistence.worlds.saveWorld(this.persistentWorld);
     }
 
@@ -228,7 +272,7 @@ export class GameWorld {
       case "interact":
         return this.interact(playerId, parsed, now);
       case "changeMap":
-        this.changeMap(playerId, parsed);
+        await this.changeMap(playerId, parsed);
         return [];
       case "builderAction":
         return this.handleBuilderAction(playerId, parsed, now);
@@ -284,7 +328,7 @@ export class GameWorld {
       map,
       player,
       this.isBuilderSiteNearby(playerId),
-      isDeeperPathUnlocked(this.runtime.maps["map-root"]),
+      isDeeperPathUnlocked(map),
       {
         lastProcessedInputTick: session.lastInputTick,
         players: visibility.players,
@@ -293,9 +337,32 @@ export class GameWorld {
         structures: visibility.structures,
         foundries: visibility.foundries,
         drops: visibility.drops,
-        chunks: visibility.chunks
+        chunks: visibility.chunks,
+        exits: this.describeExits(map),
+        nearbyExitId: findNearbyExit(this.persistentWorld, map.id, player.position)?.id ?? null
       }
     );
+  }
+
+  // Lists the exits on a map for snapshots. Deeper exits share the map's foundry lock; return exits never lock.
+  private describeExits(map: ActiveMapState): ExitSnapshot[] {
+    const locked = !isDeeperPathUnlocked(map);
+    return map.connections.flatMap((connection) => {
+      const position = exitPositionOnMap(connection, map.id);
+      if (!position) {
+        return [];
+      }
+      const descend = connection.sourceMapId === map.id;
+      return [
+        {
+          connectionId: connection.id,
+          position,
+          direction: descend ? "descend" : "ascend",
+          discovered: connection.discovered && !!connection.destinationMapId,
+          locked: descend && locked
+        }
+      ];
+    });
   }
 
   // Advances player ships. A ship with a live input stream takes one movement step per queued input (input,
@@ -386,13 +453,15 @@ export class GameWorld {
       const foundryDamage = applyFoundryDamage(map, projectile.position, projectile.damage, this.tickCounter);
       if (foundryDamage.hit) {
         if (foundryDamage.destroyedFoundry) {
-          const unlocked = map.id === "map-root" && isDeeperPathUnlocked(this.runtime.maps["map-root"]);
+          const unlocked = isDeeperPathUnlocked(map) && map.connections.some((entry) => entry.sourceMapId === map.id);
           this.queueMapFeedback(
             map.id,
             unlocked ? "deeper_path_unlocked" : "foundry_destroyed",
             unlocked ? "Deeper Path Unlocked" : "Foundry Destroyed",
             unlocked
-              ? "The root foundry is down. The deeper route is now open."
+              ? map.id === "map-root"
+                ? "The root foundry is down. The deeper route is now open."
+                : "This cavern's foundry is down. The way deeper is open."
               : "Enemy production has been disrupted in this sector.",
             "info",
             true
@@ -557,37 +626,89 @@ export class GameWorld {
     return [createBuilderState(hydrated, now)];
   }
 
-  // Moves a player through a map connection when progression gates allow the route.
-  private changeMap(playerId: ReturnType<typeof asPlayerId>, message: ChangeMapMessage): void {
+  // Moves a player through a map exit: deeper along a connection, or back up it from the destination side.
+  // The first trip through an undiscovered exit generates and persists the map behind it.
+  private async changeMap(playerId: ReturnType<typeof asPlayerId>, message: ChangeMapMessage): Promise<void> {
     const sourceMap = this.getPlayerMap(playerId);
     const player = sourceMap.players[playerId];
-    const connection = sourceMap.connections.find((entry) => entry.id === message.connectionId);
-    if (!connection?.destinationMapId) {
-      this.queueActionFeedback(playerId, "map_connection_missing", "Route Unavailable", "That navigation route is no longer available.", "warning", Date.now(), 1200);
+    const now = Date.now();
+    const connection: MapConnection | undefined = this.persistentWorld.graph.connectionIndex[message.connectionId];
+    const exitPosition = connection ? exitPositionOnMap(connection, sourceMap.id) : null;
+    if (!connection || !exitPosition) {
+      this.queueActionFeedback(playerId, "map_connection_missing", "Route Unavailable", "That navigation route is no longer available.", "warning", now, 1200);
       return;
     }
-    if (sourceMap.id === "map-root" && !isDeeperPathUnlocked(this.runtime.maps["map-root"])) {
-      this.queueActionFeedback(playerId, "deeper_path_locked", "Path Locked", "Destroy the root foundry to unlock the deeper route.", "info", Date.now(), 1500);
+    if (distance(exitPosition, player.position) > EXIT_TRAVEL_RADIUS) {
+      this.queueActionFeedback(playerId, "map_exit_out_of_range", "Too Far From Exit", "Fly closer to the exit to travel through it.", "info", now, 1200);
       return;
     }
+
+    const descending = connection.sourceMapId === sourceMap.id;
+    if (descending && !isDeeperPathUnlocked(sourceMap)) {
+      const detail =
+        sourceMap.id === "map-root"
+          ? "Destroy the root foundry to unlock the deeper route."
+          : "Destroy this cavern's foundry to open the way deeper.";
+      this.queueActionFeedback(playerId, "deeper_path_locked", "Path Locked", detail, "info", now, 1500);
+      return;
+    }
+    if (descending && !connection.destinationMapId) {
+      await this.discoverConnection(playerId, connection, now);
+    }
+
+    const destinationMapId = descending ? connection.destinationMapId : connection.sourceMapId;
+    const arrivalAnchor = descending ? connection.destinationAnchor : connection.sourceAnchor;
+    const destinationMap = destinationMapId ? this.runtime.maps[destinationMapId] : undefined;
+    if (!destinationMapId || !arrivalAnchor || !destinationMap) {
+      this.queueActionFeedback(playerId, "map_connection_missing", "Route Unavailable", "That navigation route is no longer available.", "warning", now, 1200);
+      return;
+    }
+
     // Transfer the same runtime ship object so hull, modules, inventory, and cooldowns remain intact.
-    const destinationMap = this.runtime.maps[connection.destinationMapId];
     delete sourceMap.players[playerId];
-    player.mapId = connection.destinationMapId;
-    player.position = findNearestValidPosition(
-      destinationMap,
-      {
-        x: (connection.destinationAnchor?.x ?? 1) * 32,
-        y: (connection.destinationAnchor?.y ?? 1) * 32
-      },
-      getPlayerShipCollisionRadius(player),
-      {
-        includePlayers: true,
-        includeEnemies: true
-      }
-    );
+    player.mapId = destinationMapId;
+    player.position = findNearestValidPosition(destinationMap, tileToWorld(arrivalAnchor), getPlayerShipCollisionRadius(player), {
+      includePlayers: true,
+      includeEnemies: true
+    });
     player.velocity = { x: 0, y: 0 };
     destinationMap.players[playerId] = player;
+  }
+
+  // Generates the map behind an undiscovered exit, adds it to the runtime, and persists the graph and map.
+  private async discoverConnection(playerId: ReturnType<typeof asPlayerId>, connection: MapConnection, now: number): Promise<void> {
+    // discoverExit mutates the graph synchronously, so a second player arriving mid-save sees it discovered.
+    const startedAt = performance.now();
+    const discovered = discoverExit(this.persistentWorld, connection, now);
+    this.runtime.maps[discovered.summary.id] = discovered.map;
+    const sourceMap = this.runtime.maps[connection.sourceMapId];
+    if (sourceMap && !sourceMap.connections.includes(connection)) {
+      sourceMap.connections.push(connection);
+    }
+
+    const archetype = getMapArchetype(discovered.summary.biomeId ?? "deep-cavern");
+    logger.info("Discovered map generated", {
+      mapId: discovered.summary.id,
+      connectionId: connection.id,
+      seed: discovered.summary.seed,
+      archetypeId: archetype.archetypeId,
+      depth: discovered.summary.depth,
+      generationMs: Math.round(performance.now() - startedAt),
+      playerId
+    });
+    this.queueActionFeedback(
+      playerId,
+      "map_discovered",
+      "New Cavern Charted",
+      `${archetype.label}, depth ${discovered.summary.depth}.`,
+      "info",
+      now,
+      0,
+      true
+    );
+
+    await this.persistence.worlds.saveWorld(this.persistentWorld);
+    await this.persistence.maps.saveMapState(this.worldId, serializeMapState(discovered.map, discovered.summary));
   }
 
   // Handles all builder UI actions that mutate saved ships, resources, modules, or active ship state.
