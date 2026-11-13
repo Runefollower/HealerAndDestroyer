@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2db-de41-7263-b22a-4b6ce2b6da45",
+  "seed": 1604971455,
+  "input": {
+    "prompt": "A single short sharp spike-shaped energy blaster seen from above, pointed tip aimed straight up toward the top of the image, white and pale ice-blue casing with a glowing cyan core, the weapon alone with no ship attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-19b8-7233-b767-006cfab0486e",
+      "01a1d2dc-263b-7f22-ac6a-2a3d3a1a1ca9",
+      "01a1d2dc-31b7-7c22-8708-a331e608d6b0",
+      "01a1d2dc-3d86-7163-811f-22731ad6ff48"
+    ]
+  },
+  "batchIndex": 2,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

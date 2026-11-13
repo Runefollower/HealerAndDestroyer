@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2db-74a3-75f1-8372-1c3147c83c5c",
+  "seed": 1858632106,
+  "input": {
+    "prompt": "A single long slim energy lance cannon seen from above, barrel pointing straight up toward the top of the image, white and pale ice-blue casing with glowing cyan energy coils along the barrel, the weapon alone with no ship attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2db-b0e8-7d03-9d3d-1d8db746bbe1",
+      "01a1d2db-bf83-70d3-b4af-05962232f05f",
+      "01a1d2db-ccf8-7201-91a1-516ec04397f4",
+      "01a1d2db-d9af-7be3-8425-7e9410f5341b"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

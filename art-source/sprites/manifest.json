@@ -1,0 +1,141 @@
+{
+  "scale": 4,
+  "sprites": [
+    {
+      "id": "hull-sparrow-dart",
+      "source": "art-source/sprites/hull-sparrow-dart.png",
+      "output": "apps/client/public/assets/ships/player/hulls/sparrow-dart.png",
+      "width": 76,
+      "height": 54,
+      "rotate": 90
+    },
+    {
+      "id": "hull-sparrow-manta",
+      "source": "art-source/sprites/hull-sparrow-manta.png",
+      "output": "apps/client/public/assets/ships/player/hulls/sparrow-manta.png",
+      "width": 78,
+      "height": 56,
+      "rotate": 90
+    },
+    {
+      "id": "hull-warden-crest",
+      "source": "art-source/sprites/hull-warden-crest.png",
+      "output": "apps/client/public/assets/ships/player/hulls/warden-crest.png",
+      "width": 82,
+      "height": 60,
+      "rotate": 90
+    },
+    {
+      "id": "hull-warden-bulwark",
+      "source": "art-source/sprites/hull-warden-bulwark.png",
+      "output": "apps/client/public/assets/ships/player/hulls/warden-bulwark.png",
+      "width": 84,
+      "height": 60,
+      "rotate": 90
+    },
+    {
+      "id": "engine-thruster-block",
+      "source": "art-source/sprites/engine-thruster-block.png",
+      "output": "apps/client/public/assets/ships/player/engines/thruster-block.png",
+      "width": 32,
+      "height": 28,
+      "rotate": 90
+    },
+    {
+      "id": "engine-thruster-arc",
+      "source": "art-source/sprites/engine-thruster-arc.png",
+      "output": "apps/client/public/assets/ships/player/engines/thruster-arc.png",
+      "width": 34,
+      "height": 28,
+      "rotate": 90
+    },
+    {
+      "id": "engine-thruster-bell",
+      "source": "art-source/sprites/engine-thruster-bell.png",
+      "output": "apps/client/public/assets/ships/player/engines/thruster-bell.png",
+      "width": 34,
+      "height": 30,
+      "rotate": 90
+    },
+    {
+      "id": "weapon-pulse-lance",
+      "source": "art-source/sprites/weapon-pulse-lance.png",
+      "output": "apps/client/public/assets/ships/player/weapons/pulse-lance.png",
+      "width": 38,
+      "height": 18,
+      "rotate": 90
+    },
+    {
+      "id": "weapon-pulse-prong",
+      "source": "art-source/sprites/weapon-pulse-prong.png",
+      "output": "apps/client/public/assets/ships/player/weapons/pulse-prong.png",
+      "width": 40,
+      "height": 18,
+      "rotate": 90
+    },
+    {
+      "id": "weapon-pulse-spike",
+      "source": "art-source/sprites/weapon-pulse-spike.png",
+      "output": "apps/client/public/assets/ships/player/weapons/pulse-spike.png",
+      "width": 36,
+      "height": 16,
+      "rotate": 90
+    },
+    {
+      "id": "enemy-drone-scout",
+      "source": "art-source/sprites/enemy-drone-scout.png",
+      "output": "apps/client/public/assets/world/enemies/drone-scout.png",
+      "width": 42,
+      "height": 30,
+      "rotate": 90
+    },
+    {
+      "id": "enemy-burrow-sentry",
+      "source": "art-source/sprites/enemy-burrow-sentry.png",
+      "output": "apps/client/public/assets/world/enemies/burrow-sentry.png",
+      "width": 48,
+      "height": 34,
+      "rotate": -90
+    },
+    {
+      "id": "structure-builder-site",
+      "source": "art-source/sprites/structure-builder-site.png",
+      "output": "apps/client/public/assets/world/structures/builder-site.png",
+      "width": 72,
+      "height": 72,
+      "rotate": 0
+    },
+    {
+      "id": "structure-enemy-foundry",
+      "source": "art-source/sprites/structure-enemy-foundry.png",
+      "output": "apps/client/public/assets/world/structures/enemy-foundry.png",
+      "width": 92,
+      "height": 92,
+      "rotate": 0
+    },
+    {
+      "id": "salvage-ferrite",
+      "source": "art-source/sprites/salvage-ferrite.png",
+      "output": "apps/client/public/assets/world/salvage/ferrite-salvage.png",
+      "width": 28,
+      "height": 28,
+      "rotate": 0
+    },
+    {
+      "id": "salvage-plasma",
+      "source": "art-source/sprites/salvage-plasma.png",
+      "output": "apps/client/public/assets/world/salvage/plasma-salvage.png",
+      "width": 28,
+      "height": 28,
+      "rotate": 0
+    },
+    {
+      "id": "salvage-mixed",
+      "source": "art-source/sprites/salvage-mixed.png",
+      "output": "apps/client/public/assets/world/salvage/mixed-salvage.png",
+      "width": 30,
+      "height": 30,
+      "rotate": 0
+    }
+  ]
+}

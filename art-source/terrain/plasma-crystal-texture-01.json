@@ -1,0 +1,13 @@
+{
+  "description": "Source texture for apps/client/public/assets/terrain/plasma-crystal (image 4 of a 4-image batch). Tiles are cut by scripts/build-terrain-sprites-from-texture.mjs.",
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2df-3996-7ba1-9bfb-4c7336b25edc",
+  "seed": 1119007865,
+  "input": {
+    "prompt": "Uniform repeating pattern of tightly packed dark slate-blue stones with clusters of glowing electric-blue plasma crystal shards growing between them, bright cyan-blue crystal glow, dark gaps between stones, covering 100 percent of the image, photographed straight down, evenly distributed with no clearing, no hole, no center focus, no path, soft light from the top-left, hand-painted 2D game texture",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "batchIndex": 4
+}

@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2da-fc38-7aa1-b752-b5e8f4e25ce2",
+  "seed": 515213898,
+  "input": {
+    "prompt": "A single boxy rectangular spaceship thruster module seen from above, exhaust nozzle pointing straight down toward the bottom of the image with a glowing orange exhaust port, white and pale ice-blue metal casing with panel lines, the module alone with no ship attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2db-36cc-7b51-b1b3-3c4e953e5176",
+      "01a1d2db-43e1-7592-bbc1-120a7fed9b49",
+      "01a1d2db-504b-7683-b571-ac797a137090",
+      "01a1d2db-5d08-7bc2-9634-7e8e3055150b"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

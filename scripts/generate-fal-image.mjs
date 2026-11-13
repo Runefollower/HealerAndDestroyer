@@ -8,6 +8,7 @@ import { fal } from "@fal-ai/client";
 // Each submit is billable, so the script never retries a request on its own.
 
 const DEFAULT_MODEL = "fal-ai/flux/dev";
+const BACKGROUND_REMOVAL_MODEL = "fal-ai/birefnet/v2";
 const DEFAULT_OUTPUT_DIR = join("apps", "client", "public", "assets", "generated");
 
 const usage = `Usage: npm run generate:fal -- --prompt "<text>" [options]
@@ -21,6 +22,7 @@ Options:
   --num <n>         Number of images, 1 to 4 (default 1)
   --seed <n>        Seed for repeatable results
   --input <json>    Extra model-specific input fields as a JSON object
+  --remove-bg       Also save a transparent "-cutout.png" of each image (BiRefNet)
   --help            Show this message`;
 
 const { values: args } = parseArgs({
@@ -33,6 +35,7 @@ const { values: args } = parseArgs({
     num: { type: "string" },
     seed: { type: "string" },
     input: { type: "string" },
+    "remove-bg": { type: "boolean", default: false },
     help: { type: "boolean", default: false }
   }
 });
@@ -78,19 +81,41 @@ const outputDir = resolve(args.out);
 mkdirSync(outputDir, { recursive: true });
 const prefix = args.name ?? `fal-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 
+const cutoutRequestIds = [];
 for (const [index, image] of images.entries()) {
   const extension = extensionFor(image.content_type);
   const suffix = images.length > 1 ? `-${index + 1}` : "";
   const filePath = join(outputDir, `${prefix}${suffix}.${extension}`);
   writeFileSync(filePath, await download(image.url));
   console.log(`Saved ${filePath}`);
+
+  if (args["remove-bg"]) {
+    // The generated image is still hosted by fal, so the cutout model can read it by URL.
+    const cutout = await fal.subscribe(BACKGROUND_REMOVAL_MODEL, {
+      input: { image_url: image.url, model: "General Use (Heavy)", output_format: "png" }
+    });
+    cutoutRequestIds.push(cutout.requestId);
+    const cutoutPath = join(outputDir, `${prefix}${suffix}-cutout.png`);
+    writeFileSync(cutoutPath, await download(cutout.data.image.url));
+    console.log(`Saved ${cutoutPath}`);
+  }
 }
 
 // A sidecar records how the art was made so it can be regenerated or varied later.
 const metadataPath = join(outputDir, `${prefix}.json`);
 writeFileSync(
   metadataPath,
-  `${JSON.stringify({ model: args.model, requestId: result.requestId, seed: result.data?.seed, input }, null, 2)}\n`
+  `${JSON.stringify(
+    {
+      model: args.model,
+      requestId: result.requestId,
+      seed: result.data?.seed,
+      input,
+      ...(args["remove-bg"] ? { backgroundRemoval: { model: BACKGROUND_REMOVAL_MODEL, requestIds: cutoutRequestIds } } : {})
+    },
+    null,
+    2
+  )}\n`
 );
 console.log(`Saved ${metadataPath}`);
 

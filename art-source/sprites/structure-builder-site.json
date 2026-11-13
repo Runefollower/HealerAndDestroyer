@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2dc-0a9d-7392-b89a-11d3ff819681",
+  "seed": 2035964089,
+  "input": {
+    "prompt": "A friendly hexagonal construction beacon platform seen from directly above, symmetric hexagon pad with teal and white metal rim, a glowing mint-green targeting crosshair core in the center, small guide lights on the edges. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-4720-7903-b410-0ecd6f5fab71",
+      "01a1d2dc-5671-77a3-b558-cb3c976d6417",
+      "01a1d2dc-699b-7cb2-8602-b6871458d659",
+      "01a1d2dc-7e23-7873-8310-d186afa54098"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

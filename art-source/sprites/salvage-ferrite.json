@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2dc-589c-7a80-9bf0-e21d095b2607",
+  "seed": 950536597,
+  "input": {
+    "prompt": "A small pickup item seen from above: a compact bundle of salvaged ferrite metal scrap chunks, dull gold and orange metal pieces strapped with a dark band, glowing faint orange edges. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-94dc-7e82-9938-3d3d3d36ea3e",
+      "01a1d2dc-a58d-72b1-8bcb-aaeab26ce7d2",
+      "01a1d2dc-b051-7f62-bf08-e78f76af2ae4",
+      "01a1d2dc-be13-7d03-89c2-ae2ab203a0f9"
+    ]
+  },
+  "batchIndex": 1,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

@@ -1,5 +1,5 @@
 {
-  "description": "Source texture for apps/client/public/assets/terrain/rock (image 1 of a 4-image batch). Tiles are cut by scripts/build-rock-sprites-from-texture.mjs.",
+  "description": "Source texture for apps/client/public/assets/terrain/rock (image 1 of a 4-image batch). Tiles are cut by scripts/build-terrain-sprites-from-texture.mjs.",
   "model": "fal-ai/flux/dev",
   "requestId": "01a1d2cb-2004-7c10-89df-adef5f3aa570",
   "seed": 1442117354,

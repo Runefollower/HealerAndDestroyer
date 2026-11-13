@@ -24,13 +24,13 @@ let preloadPromise: Promise<void> | null = null;
 const enemySpriteRegistry: Record<string, WorldSpriteDefinition> = {
   "drone-scout": {
     id: "drone-scout",
-    textureUrl: "/assets/world/enemies/drone-scout.svg",
+    textureUrl: "/assets/world/enemies/drone-scout.png",
     width: 42,
     height: 30
   },
   "burrow-sentry": {
     id: "burrow-sentry",
-    textureUrl: "/assets/world/enemies/burrow-sentry.svg",
+    textureUrl: "/assets/world/enemies/burrow-sentry.png",
     width: 48,
     height: 34
   }
@@ -40,13 +40,13 @@ const enemySpriteRegistry: Record<string, WorldSpriteDefinition> = {
 const structureSpriteRegistry: Record<string, WorldSpriteDefinition> = {
   "builder-site": {
     id: "builder-site",
-    textureUrl: "/assets/world/structures/builder-site.svg",
+    textureUrl: "/assets/world/structures/builder-site.png",
     width: 72,
     height: 72
   },
   "enemy-foundry": {
     id: "enemy-foundry",
-    textureUrl: "/assets/world/structures/enemy-foundry.svg",
+    textureUrl: "/assets/world/structures/enemy-foundry.png",
     width: 92,
     height: 92
   }
@@ -56,19 +56,19 @@ const structureSpriteRegistry: Record<string, WorldSpriteDefinition> = {
 const salvageSpriteRegistry: Record<SalvageSpriteId, WorldSpriteDefinition> = {
   "ferrite-salvage": {
     id: "ferrite-salvage",
-    textureUrl: "/assets/world/salvage/ferrite-salvage.svg",
+    textureUrl: "/assets/world/salvage/ferrite-salvage.png",
     width: 28,
     height: 28
   },
   "plasma-salvage": {
     id: "plasma-salvage",
-    textureUrl: "/assets/world/salvage/plasma-salvage.svg",
+    textureUrl: "/assets/world/salvage/plasma-salvage.png",
     width: 28,
     height: 28
   },
   "mixed-salvage": {
     id: "mixed-salvage",
-    textureUrl: "/assets/world/salvage/mixed-salvage.svg",
+    textureUrl: "/assets/world/salvage/mixed-salvage.png",
     width: 30,
     height: 30
   }

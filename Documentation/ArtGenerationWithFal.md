@@ -18,14 +18,34 @@ Images land in `apps/client/public/assets/generated/` unless `--out` says otherw
 
 Every submit is billable (FLUX dev is about $0.025 per megapixel), so the script never retries on its own. If a run fails after printing a request id, look it up in the fal dashboard before resubmitting.
 
-## Rock terrain sprites
+## Terrain sprites
 
-The common rock variants (`apps/client/public/assets/terrain/rock/rock-01..64.png`) are cut from a fal-generated rubble texture saved in `art-source/terrain/rock-texture-01.png`. Its `.json` sidecar records the prompt and seed.
+All five solid terrain materials (`apps/client/public/assets/terrain/<material>/<material>-01..64.png`) are cut from fal-generated full-frame textures in `art-source/terrain/<material>-texture-01.png`. Each texture has a `.json` sidecar that records its prompt and seed.
 
 ```bash
-npm run generate:rock-from-texture
+npm run generate:terrain                    # all materials
+npm run generate:terrain -- --only ferrite-ore
 ```
 
-The script takes a seeded 448px crop of the texture for each variant and box-filters it down to 64px. It keeps the alpha silhouette of the existing sprite, so walls still overlap and blend the same way in the renderer. It is deterministic, so rerunning it with the same texture and seed gives identical files. To restyle the rocks, generate a new full-frame texture (the prompt in the sidecar is a good starting point), save it under `art-source/terrain/`, and pass `--texture <path>`.
+`scripts/build-terrain-sprites-from-texture.mjs` takes a seeded crop of the texture for each variant and box-filters it down to 64px. Every material uses the alpha silhouettes of the common rock sprites, so walls overlap and blend the same way in the renderer. The output is deterministic. To restyle a material, generate a new full-frame texture, save it over the source file, and rerun the command. The old procedural generator is still available as `npm run generate:terrain-procedural`, but it overwrites the non-rock materials.
 
-Prompt lessons learned: words like "cave" or "tile" make FLUX compose a clearing or a frame in the middle. A "uniform rubble field photographed straight down, no clearing, no center focus" prompt gives even full-frame coverage.
+Prompt lessons: words like "cave" or "tile" make FLUX compose a clearing or a frame in the middle. "Uniform repeating pattern of tightly packed ... covering 100 percent of the image, photographed straight down, no clearing, no center focus" gives even full-frame coverage.
+
+## Ship, enemy, structure and salvage sprites
+
+Source art lives in `art-source/sprites/<id>.png`: transparent, trimmed, high resolution, with a `.json` sidecar for the prompt and seed. `art-source/sprites/manifest.json` maps each source to its game file, its world-space size and a rotation. The art is generated nose-up and rotated so it faces +x, the game's forward direction.
+
+```bash
+npm run generate:sprites                    # rebuild every sprite
+npm run generate:sprites -- --only hull-sparrow-dart
+```
+
+The build trims the art, fits it centered into width x height x `scale` (4x), and writes PNGs that `playerShipAssets.ts` and `worldEntityAssets.ts` load at the same world sizes as before.
+
+To make a new sprite, generate candidates with a background cutout and pick one:
+
+```bash
+npm run generate:fal -- --remove-bg --num 4 --size square_hd --name hull-new --prompt "<subject>, nose pointing straight up toward the top of the image. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame"
+```
+
+`--remove-bg` runs each image through `fal-ai/birefnet/v2` and saves a `-cutout.png` next to it. Copy the chosen cutout into `art-source/sprites/`, add a manifest entry, and run `npm run generate:sprites`. For engine parts, avoid the words "engine" and "nozzle" with "rocket" framing: FLUX tends to draw whole rockets with flames.

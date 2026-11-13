@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2db-e56b-7631-9691-a3cf8ba524e8",
+  "seed": 140502346,
+  "input": {
+    "prompt": "A small hostile robotic scout drone seen from above, nose pointing straight up toward the top of the image, sleek insect-like machine with two short side fins, dark maroon and bone-white armor, a single glowing red-pink sensor eye. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-2379-7131-939b-f15b1f14b398",
+      "01a1d2dc-3157-7ac3-ae0a-3b4a9b950258",
+      "01a1d2dc-401e-7050-8b30-5b23299bd596",
+      "01a1d2dc-4be0-72e3-9324-aab6ff10a47b"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

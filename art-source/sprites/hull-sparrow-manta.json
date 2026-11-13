@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2da-fc3e-7621-92b2-266bf77c4316",
+  "seed": 1895588409,
+  "input": {
+    "prompt": "A small agile scout starfighter hull seen from above, nose pointing straight up toward the top of the image, wide flat manta-ray shape with broad curved wings, glossy white and pale ice-blue armor plates, a glowing cyan cockpit canopy near the center, small orange accent stripes, hull only with no engine nozzles and no guns attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2db-3a0c-7492-a31c-90b418ff3f2a",
+      "01a1d2db-48f1-7f30-97f0-7e462b20d60e",
+      "01a1d2db-57ae-76a0-82e2-7f91cebfcf7a",
+      "01a1d2db-661d-7cb3-8f91-5bd99bbd2cca"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}
