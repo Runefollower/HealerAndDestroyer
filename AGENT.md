@@ -59,6 +59,8 @@ Key files:
   - builder/stable UI rendering and interactions
 - `apps/client/src/game/renderWorld.ts`
   - HUD and world rendering
+- `apps/client/src/game/worldEffects.ts`
+  - plays server effect events (dust, rock bursts, explosions) once each with a cap; drawn by `renderWorld.ts`
 - `apps/client/src/game/minimap.ts`
   - fog-of-war minimap overlay (unknown / remembered / visible terrain plus visible markers), toggled with `M`
 - `apps/client/src/game/networkClient.ts`

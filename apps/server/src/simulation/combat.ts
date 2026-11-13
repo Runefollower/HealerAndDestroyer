@@ -13,6 +13,7 @@ import {
   type StoredShip
 } from "@healer/shared";
 import { getEnemyCollisionRadius, getPlayerShipCollisionRadius, resolveMovement } from "./collision.js";
+import { emitEffect } from "./effects.js";
 import { noteDefenseLost, refreshFoundryEnemyCounts } from "./foundries.js";
 import { findNearestVisiblePlayer } from "./visibility.js";
 
@@ -141,9 +142,18 @@ export function findBoltPlayerHit(map: ActiveMapState, position: { x: number; y:
   return Object.values(map.players).find((player) => player.hull > 0 && distance(player.position, position) <= getPlayerShipCollisionRadius(player) + 2) ?? null;
 }
 
-// Removes a killed enemy, drops its salvage, and updates its foundry's spawn count or rebuild timer.
-export function killEnemy(map: ActiveMapState, enemy: EnemyState, now: number): void {
+// Removes a killed enemy with an explosion, drops its salvage, and updates its foundry's spawn count or
+// rebuild timer.
+export function killEnemy(map: ActiveMapState, enemy: EnemyState, now: number, tick: number): void {
   const definition = findEnemyDefinition(enemy.enemyTypeId);
+  emitEffect(map, {
+    id: `enemy-${enemy.id}-${tick}`,
+    kind: "explosion",
+    position: { ...enemy.position },
+    radius: enemy.defendsFoundryId ? 34 : 28,
+    tint: 0xff9a5c,
+    tick
+  });
   map.drops[`drop-${enemy.id}`] = {
     id: asEntityId(`drop-${enemy.id}`),
     mapId: enemy.mapId,

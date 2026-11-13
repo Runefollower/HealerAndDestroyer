@@ -18,6 +18,7 @@ const defenseMinSpacing = 56;
 export const DEFENSE_TURRET_TYPE_ID = "defense-turret";
 // Used when a foundry has no enemy mix (old saves): every mobile enemy type in content order.
 const defaultEnemyMix = enemyDefinitions.filter((entry) => entry.role !== "turret").map((entry) => entry.id);
+import { emitEffect } from "./effects.js";
 
 export interface FoundryDamageResult {
   // hit identifies that damage landed on an active foundry.
@@ -162,6 +163,14 @@ export function applyFoundryDamage(map: ActiveMapState, position: { x: number; y
       position: { ...foundry.position },
       resources: { ...(foundry.reward ?? { ferrite: 30, "plasma-crystal": 10 }) }
     };
+    emitEffect(map, {
+      id: `foundry-${foundry.id}-${tickCounter}`,
+      kind: "explosion",
+      position: { ...foundry.position },
+      radius: 64,
+      tint: 0xff8a4c,
+      tick: tickCounter
+    });
     return { hit: true, destroyedFoundry: foundry };
   }
   return { hit: true };

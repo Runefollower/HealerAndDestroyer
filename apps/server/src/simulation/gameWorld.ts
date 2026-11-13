@@ -50,6 +50,8 @@ import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
 import { damageTerrainAt } from "./terrain.js";
+import { tickDrops } from "./drops.js";
+import { emitEffect, pruneEffects } from "./effects.js";
 import { generateMapLayout, tileToWorld, type GeneratedMapLayout } from "./mapGeneration.js";
 import { getMapArchetype } from "./mapArchetypes.js";
 import {
@@ -310,7 +312,10 @@ export class GameWorld {
       this.tickPlayers(map, deltaSeconds);
       destroyed.push(...this.tickProjectiles(map, deltaMs, now));
       destroyed.push(...tickEnemies(map, deltaSeconds, now, entityIdFactory("bolt")));
+      // Pickup runs before drift so a drop spawned under a ship is collected where it appeared.
       await this.collectDrops(map, now);
+      tickDrops(map, deltaSeconds);
+      pruneEffects(map, this.tickCounter);
       tickFoundries(map, now, entityIdFactory("enemy"));
     }
 
@@ -360,6 +365,7 @@ export class GameWorld {
         structures: visibility.structures,
         foundries: visibility.foundries,
         drops: visibility.drops,
+        effects: visibility.effects,
         chunks: visibility.chunks,
         exits: this.describeExits(map),
         nearbyExitId: findNearbyExit(this.persistentWorld, map.id, player.position)?.id ?? null
@@ -481,7 +487,7 @@ export class GameWorld {
         enemy.health -= projectile.damage;
         delete map.projectiles[projectile.id];
         if (enemy.health <= 0) {
-          killEnemy(map, enemy, now);
+          killEnemy(map, enemy, now, this.tickCounter);
         }
         continue;
       }
@@ -554,8 +560,16 @@ export class GameWorld {
       return;
     }
 
-    // Wreck salvage stays where the ship died.
+    // Wreck salvage stays where the ship died, under an explosion every nearby player sees.
     const wreckPosition = { ...player.position };
+    emitEffect(sourceMap, {
+      id: `ship-${player.playerId}-${this.tickCounter}`,
+      kind: "explosion",
+      position: { ...wreckPosition },
+      radius: 48,
+      tint: 0xffb36b,
+      tick: this.tickCounter
+    });
     const salvage = computeWreckSalvage(player.inventory, { hullId: player.hullId, modules: player.modules });
     const wreckId = asEntityId(`wreck-${player.playerId}-${this.tickCounter}`);
     if (Object.keys(salvage.spilled).length > 0) {
