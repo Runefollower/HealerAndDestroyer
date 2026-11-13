@@ -1,4 +1,5 @@
 import type { ServerMessage, SnapshotMessage } from "@healer/shared";
+import type { ConnectionStatus } from "./networkClient.js";
 
 export type ToastTone = "info" | "warning" | "success";
 export type ModuleSelectionCapability = "weapon" | "mining" | "support";
@@ -44,6 +45,8 @@ export interface ClientStore {
   builderDraft: BuilderDesignDraft;
   // toasts contains transient server/client feedback messages.
   toasts: UiToast[];
+  // connectionStatus drives the connection banner shown above toasts while the server is unreachable.
+  connectionStatus: ConnectionStatus;
   // selectedModuleHardpoints records the active hardpoint per module capability for hotkey cycling.
   selectedModuleHardpoints: Record<ModuleSelectionCapability, string | null>;
 }
@@ -65,6 +68,7 @@ export function createClientStore(): ClientStore {
       selectedModules: {}
     },
     toasts: [],
+    connectionStatus: "connected",
     selectedModuleHardpoints: {
       weapon: null,
       mining: null,
