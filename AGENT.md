@@ -102,7 +102,9 @@ Key files:
 - `apps/server/src/simulation/mapGeneration.ts`
   - deterministic cave generation from a seed and archetype config
 - `apps/server/src/simulation/mapArchetypes.ts`
-  - map archetype config table (sizes, room/corridor/ore tuning, validation rules) and the prototype root/deeper map definitions
+  - map archetype config table (sizes, room/corridor/ore tuning, validation rules, foundry content), per-depth archetype pools for discovered maps, and the prototype root/deeper map definitions
+- `apps/server/src/simulation/worldGraph.ts`
+  - world-graph expansion: reserves undiscovered exits, generates and links the map behind one on first use, exit lookup/range helpers
 - `apps/server/src/simulation/mapValidation.ts`
   - generated-map validation (anchor clearance, spacing, ship-sized reachability, volatile placement, minimum materials)
 - `apps/server/src/simulation/gameWorld.ts`
@@ -282,6 +284,7 @@ Main test files:
 - `packages/persistence/src/persistence.test.ts`
 - `apps/server/src/simulation/gameWorld.test.ts`
 - `apps/server/src/simulation/mapGeneration.test.ts`
+- `apps/server/src/simulation/worldGraph.test.ts`
 
 ## How To Run
 

@@ -216,9 +216,14 @@ export async function bootstrapClient(): Promise<void> {
   });
 
   window.addEventListener("builder-interact", () => {
-    // E toggles the builder only when the latest snapshot says the player is close enough.
+    // E toggles the builder when the latest snapshot says the player is close enough; otherwise it
+    // travels through a nearby map exit. The server re-checks range and foundry locks.
     const nearby = !!store.latestSnapshot?.builderSiteNearby;
     if (!nearby) {
+      const exitId = store.latestSnapshot?.nearbyExitId;
+      if (exitId) {
+        network.send({ type: "changeMap", connectionId: exitId });
+      }
       return;
     }
 

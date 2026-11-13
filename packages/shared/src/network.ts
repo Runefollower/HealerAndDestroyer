@@ -147,6 +147,19 @@ export interface DropSnapshot {
   resources: ResourceMap;
 }
 
+// ExitSnapshot is one map connection endpoint on the player's current map.
+export interface ExitSnapshot {
+  connectionId: string;
+  // position is the world-space center of the exit tile.
+  position: { x: number; y: number };
+  // "descend" leads deeper (possibly to a map nobody has generated yet); "ascend" leads back toward root.
+  direction: "descend" | "ascend";
+  // discovered is false until some player has gone through, which generates the destination map.
+  discovered: boolean;
+  // locked exits refuse travel until the map's foundries are destroyed.
+  locked: boolean;
+}
+
 export type TerrainVisibilityState = 0 | 1 | 2;
 
 export interface ChunkSnapshot {
@@ -176,6 +189,9 @@ export interface SnapshotMessage {
   selfModules: InstalledModule[];
   builderSiteNearby: boolean;
   deeperPathUnlocked: boolean;
+  exits: ExitSnapshot[];
+  // nearbyExitId is the exit close enough to travel through with the interact key, if any.
+  nearbyExitId: string | null;
 }
 
 export interface JoinedWorldMessage {
@@ -230,6 +246,8 @@ export interface SnapshotMessageOverrides {
   foundries?: FoundrySnapshot[];
   drops?: DropSnapshot[];
   chunks?: ChunkSnapshot[];
+  exits?: ExitSnapshot[];
+  nearbyExitId?: string | null;
 }
 
 export function createSnapshotMessage(
@@ -318,6 +336,8 @@ export function createSnapshotMessage(
     inventory: self.inventory,
     selfModules: structuredClone(self.modules),
     builderSiteNearby,
-    deeperPathUnlocked
+    deeperPathUnlocked,
+    exits: overrides.exits ?? [],
+    nearbyExitId: overrides.nearbyExitId ?? null
   };
 }

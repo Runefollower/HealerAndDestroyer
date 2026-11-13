@@ -291,6 +291,11 @@ export class MinimapOverlay {
     for (const foundry of snapshot.foundries) {
       drawSquare(context, foundry.position, markerRadius * 1.3, foundry.active ? "#ff8a3d" : "#7a5a44");
     }
+    // Exits use the same colors as their in-world rings: green up, amber uncharted, cyan charted, red locked.
+    for (const exit of snapshot.exits ?? []) {
+      const color = exit.direction === "ascend" ? "#7ee08a" : exit.locked ? "#ff6b5b" : exit.discovered ? "#5bd7ff" : "#ffc857";
+      drawRing(context, exit.position, markerRadius * 1.6, markerRadius * 0.6, color);
+    }
     for (const enemy of snapshot.enemies) {
       drawDot(context, enemy.position, markerRadius, "#ff4d5e");
     }
@@ -322,6 +327,15 @@ function drawDot(context: CanvasRenderingContext2D, position: { x: number; y: nu
   context.beginPath();
   context.arc(tile.x, tile.y, radius, 0, Math.PI * 2);
   context.fill();
+}
+
+function drawRing(context: CanvasRenderingContext2D, position: { x: number; y: number }, radius: number, width: number, color: string): void {
+  const tile = toTile(position);
+  context.strokeStyle = color;
+  context.lineWidth = width;
+  context.beginPath();
+  context.arc(tile.x, tile.y, radius, 0, Math.PI * 2);
+  context.stroke();
 }
 
 function drawSquare(context: CanvasRenderingContext2D, position: { x: number; y: number }, radius: number, color: string): void {

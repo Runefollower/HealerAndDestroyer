@@ -55,6 +55,10 @@ export interface MapConnection {
   destinationAnchor?: Vec2i;
   type: "tunnel" | "gate" | "portal" | "shaft";
   discovered: boolean;
+  // An undiscovered exit has no destination map yet. It reserves the seed and archetype the
+  // destination will be generated from the first time a player travels through it.
+  destinationSeed?: string;
+  destinationArchetypeId?: string;
 }
 
 export interface PersistentMapSummary {
@@ -64,6 +68,9 @@ export interface PersistentMapSummary {
   connectionIds: ConnectionId[];
   lastActivatedAt: number | null;
   biomeId?: string;
+  // depth counts connections from the root map (root is 0). Discovered maps pick archetypes and
+  // foundry strength from it.
+  depth?: number;
 }
 
 export interface WorldGraph {
