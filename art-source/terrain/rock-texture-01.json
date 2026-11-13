@@ -1,0 +1,13 @@
+{
+  "description": "Source texture for apps/client/public/assets/terrain/rock (image 1 of a 4-image batch). Tiles are cut by scripts/build-rock-sprites-from-texture.mjs.",
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2cb-2004-7c10-89df-adef5f3aa570",
+  "seed": 1442117354,
+  "batchIndex": 1,
+  "input": {
+    "prompt": "Uniform repeating pattern of tightly packed angular slate-grey and blue-grey stones covering 100 percent of the image, like a dry stone rubble field photographed straight down, stones of similar size evenly distributed with no clearing, no hole, no center focus, no path, dark charcoal gaps between stones, soft light from the top-left, pale highlights on stone tops, faint cracks, hand-painted 2D game texture",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  }
+}
