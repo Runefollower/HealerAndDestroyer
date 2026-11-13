@@ -499,7 +499,7 @@ Drifting debris:
 
 - debris and salvage drops (from mining, weapon terrain hits, enemy kills, and foundries) spawn with a small random velocity, direction, and spin, and drift slowly instead of sitting still
 - drift must be server-side because pickup is decided by drop position on the server: give drops `velocity` and `angularVelocity`, integrate them each tick with gentle drag, and bounce off solid terrain and structures with the existing collision helper
-- snapshots carry drop velocity and rotation so the client extrapolates smoothly between snapshots, like projectiles and enemies after §23
+- snapshots carry drop velocity and rotation so the client extrapolates smoothly between snapshots, the same way projectiles and enemies already are (completed step 23)
 - drops should settle to a slow drift or stop after a while so they stay collectible and do not pile into walls
 
 Dust and explosion effects:
