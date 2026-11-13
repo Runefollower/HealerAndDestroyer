@@ -155,7 +155,8 @@ Remaining, in recommended order:
 3. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression, and make mass, power, and thrust affect play (§10)
 4. add scanner/sensor discovery tools on top of the minimap (§11)
 5. scale the world graph: branching exits, simulating only occupied maps, and wiring durable persistence (§8, Assumptions)
-6. continue client performance hardening only where playtesting shows spikes
+6. cosmetic feedback pass: mining drone swarm, visible mining hardware on ships, drifting debris, and dust/explosion effects (§12)
+7. continue client performance hardening only where playtesting shows spikes
 
 ## Key Changes
 
@@ -474,6 +475,48 @@ Next implementation target:
 - keep enemy movement hidden in unexplored fog unless a sensor rule explicitly reveals it
 - add tests for sensor visibility rules and remembered-map state persistence
 
+### 12. Cosmetic feedback: mining, debris, and destruction effects
+
+Status: not started. The current pass only has the short terrain burst from §2.9 (inferred client-side when a visible cell disappears).
+
+The goal is to make mining, salvage, and destruction feel physical without changing who owns gameplay state: the server stays authoritative for anything that affects play (mining timing, drop positions, pickups), and the client owns pure visuals.
+
+Mining drone swarm:
+
+- mining spawns a swarm of tiny drones from the ship's mining module; they fan out, then converge on the target block and work it for a few seconds before it breaks
+- today `mineTerrainAt` clears a cell instantly on a mining action (180 ms cooldown), so a multi-second swarm is also a gameplay change: mining becomes a short channelled job per block
+- server: track an active mining job (player, target cell, start time, duration from the material, for example longer for stone and ore), cancel it if the ship leaves range or the cell is destroyed by something else, and clear the cell when it completes. Snapshots carry the active job (target and progress) so every player sees the swarm
+- client: drones are purely visual particles driven by the job's target and progress (spread phase, converge phase, orbit/work phase, return or dissolve on completion)
+- open questions for playtesting: one job per ship or several in parallel, whether more mining modules mean more drones or faster jobs, and whether drones can be shot down later
+
+Mining hardware on the ship:
+
+- installing a mining module adds a visible part to the ship sprite at its hardpoint (for example a drone bay or rack that the swarm launches from), the same way hull, engine, and weapon parts already layer in `playerShipAssets.ts`
+- needs a new sprite part per mining module, generated through the existing fal sprite pipeline (`npm run generate:sprites`)
+- later support and armor modules should follow the same rule so every installed module reads on the ship
+
+Drifting debris:
+
+- debris and salvage drops (from mining, weapon terrain hits, enemy kills, and foundries) spawn with a small random velocity, direction, and spin, and drift slowly instead of sitting still
+- drift must be server-side because pickup is decided by drop position on the server: give drops `velocity` and `angularVelocity`, integrate them each tick with gentle drag, and bounce off solid terrain and structures with the existing collision helper
+- snapshots carry drop velocity and rotation so the client extrapolates smoothly between snapshots, like projectiles and enemies after §23
+- drops should settle to a slow drift or stop after a while so they stay collectible and do not pile into walls
+
+Dust and explosion effects:
+
+- a dust cloud puff when mining finishes a block (replacing or extending the current terrain burst)
+- an explosion when an unstable crystal detonates or a rock is blown apart by weapon fire, sized to the blast radius
+- an explosion when an enemy, a foundry, or a player ship is destroyed (player ship destruction depends on the death/respawn work in §9)
+- effects are client-only and driven by events the client can already see or that snapshots add (cell cleared by mining vs. by explosion, entity destroyed); destruction of entities needs a small event or "destroyed" marker in snapshots because removed entities currently just vanish
+- follow the §6 rule: retain and reuse effect objects or destroy per-frame `Graphics` with `context: true`, and cap active particles
+
+Next implementation target:
+
+- debris drift first (self-contained, server plus client, testable)
+- then dust/explosion effects, with destruction events added to snapshots
+- then the mining job and drone swarm, together with the ship mining part
+- tests: mining job timing and cancellation, drop drift and terrain collision staying within map bounds, drops remaining collectible, and snapshot fields for jobs and destruction events
+
 ## Test Plan
 
 Add or update automated scenarios for:
@@ -522,6 +565,10 @@ Add or update automated scenarios for:
   - enemy fortification pockets spawn in valid generated spaces without blocking required routes
   - foundry destruction reduces local pressure and stops any first-pass defense rebuilding behavior
   - expanded hull/module data validates costs, hardpoints, power use, and build timers
+- cosmetic feedback (§12):
+  - a mining job takes its configured time, completes once, and cancels when the ship leaves range or the cell is already gone
+  - drifting drops collide with terrain, stay inside the map, slow down, and remain collectible
+  - snapshots expose active mining jobs and destruction events so other players see the same effects
 
 Optional terrain-art follow-up checks, only if later phases reveal a need:
 
