@@ -4,6 +4,8 @@ import {
   type ActiveMapState,
   type ChunkSnapshot,
   type DropSnapshot,
+  type EffectEvent,
+  toDropSnapshot,
   type EnemySnapshot,
   type EnemyState,
   type FoundrySnapshot,
@@ -46,6 +48,7 @@ export interface PlayerVisibilityView {
   structures: StructureSnapshot[];
   foundries: FoundrySnapshot[];
   drops: DropSnapshot[];
+  effects: EffectEvent[];
   // visibleTiles is reused by callers that need the exact tile set for additional logic.
   visibleTiles: Set<string>;
   // memoryChanged flags when fog-of-war memory should eventually be persisted.
@@ -126,6 +129,7 @@ export function buildPlayerVisibilityView(
     drops: Object.values(map.drops)
       .filter((drop) => isPositionVisible(drop.position, visibleTiles))
       .map(toDropSnapshot),
+    effects: (map.effects ?? []).filter((effect) => isPositionVisible(effect.position, visibleTiles)),
     visibleTiles,
     memoryChanged
   };
@@ -354,11 +358,3 @@ function toFoundrySnapshot(foundry: FoundryState): FoundrySnapshot {
   };
 }
 
-// Converts live resource drop state into the network snapshot shape.
-function toDropSnapshot(drop: ActiveMapState["drops"][string]): DropSnapshot {
-  return {
-    id: drop.id,
-    position: drop.position,
-    resources: drop.resources
-  };
-}

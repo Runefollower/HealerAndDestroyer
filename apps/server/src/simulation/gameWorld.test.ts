@@ -816,6 +816,8 @@ describe("GameWorld", () => {
 
     expect(foundry.buildState).toBe("destroyed");
     expect(world.getSnapshot("player-1").deeperPathUnlocked).toBe(true);
+    // The destruction is visible to the player as an explosion event for the client to play (§12).
+    expect(world.getSnapshot("player-1").effects).toContainEqual(expect.objectContaining({ kind: "explosion", radius: 64 }));
     expect(world.drainPendingMessages("player-1")).toContainEqual(
       expect.objectContaining({
         type: "actionFeedback",

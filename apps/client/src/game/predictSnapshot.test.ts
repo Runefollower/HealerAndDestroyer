@@ -70,6 +70,7 @@ class FakeServer {
       structures: [],
       foundries: [],
       drops: [],
+      effects: [],
       chunks: [],
       inventory: {},
       selfModules: [],

@@ -288,7 +288,8 @@ export async function bootstrapClient(): Promise<void> {
         width: app.screen.width,
         height: app.screen.height
       }, {
-        selfThrustForward: input.thrustForward
+        selfThrustForward: input.thrustForward,
+        secondsSinceTick: (tick) => renderPredictor.clock.secondsSinceTick(tick, frameTime)
       });
       // Minimap terrain rebuilds once per authoritative snapshot; markers follow the predicted poses.
       minimap.updateTerrain(snapshot);
@@ -566,7 +567,7 @@ function renderFrameRate(container: HTMLElement, visible: boolean, frameTimes: n
       ? `dyn ${renderStats.dynamicObjects} terrain ${renderStats.terrainSprites} fog ${renderStats.fogObjects}`
       : "dyn - terrain - fog -",
     renderStats
-      ? `exhaust ${renderStats.exhaustParticles} bursts ${renderStats.terrainBursts} terrain rebuild ${renderStats.terrainRebuilt ? "yes" : "no"}`
+      ? `exhaust ${renderStats.exhaustParticles} fx ${renderStats.effects} terrain rebuild ${renderStats.terrainRebuilt ? "yes" : "no"}`
       : "exhaust - bursts - terrain rebuild -",
     formatLastHitch(diagnostics.lastHitch)
   ].join("\n");
