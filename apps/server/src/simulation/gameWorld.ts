@@ -41,6 +41,8 @@ import { applyPersistedMapState, serializeMapState } from "./mapPersistence.js";
 import { activateInstalledModule, applyWeaponFire } from "./moduleActions.js";
 import { createLogger } from "../logger.js";
 import { damageTerrainAt } from "./terrain.js";
+import { tickDrops } from "./drops.js";
+import { emitEffect, pruneEffects } from "./effects.js";
 import { generateMapLayout, tileToWorld, type GeneratedMapLayout } from "./mapGeneration.js";
 import { getMapArchetype } from "./mapArchetypes.js";
 import {
@@ -293,7 +295,10 @@ export class GameWorld {
       this.tickPlayers(map, deltaSeconds);
       this.tickProjectiles(map, deltaMs);
       this.tickEnemies(map, deltaSeconds);
+      // Pickup runs before drift so a drop spawned under a ship is collected where it appeared.
       await this.collectDrops(map);
+      tickDrops(map, deltaSeconds);
+      pruneEffects(map, this.tickCounter);
       tickFoundries(map, now, () => `enemy-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`);
     }
 
@@ -337,6 +342,7 @@ export class GameWorld {
         structures: visibility.structures,
         foundries: visibility.foundries,
         drops: visibility.drops,
+        effects: visibility.effects,
         chunks: visibility.chunks,
         exits: this.describeExits(map),
         nearbyExitId: findNearbyExit(this.persistentWorld, map.id, player.position)?.id ?? null
@@ -443,6 +449,14 @@ export class GameWorld {
             position: { ...enemy.position },
             resources: definition?.salvage ?? { ferrite: 1 }
           };
+          emitEffect(map, {
+            id: `enemy-${enemy.id}-${this.tickCounter}`,
+            kind: "explosion",
+            position: { ...enemy.position },
+            radius: 28,
+            tint: 0xff9a5c,
+            tick: this.tickCounter
+          });
           delete map.enemies[enemy.id];
           refreshFoundryEnemyCounts(map);
         }

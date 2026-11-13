@@ -3,6 +3,7 @@ import type { InstalledModule } from "./content.js";
 import type { ResourceMap } from "./resources.js";
 import type { MapConnection } from "./persistence.js";
 import type { Vec2 } from "./math.js";
+import type { EffectEvent } from "./effects.js";
 
 export type CellType = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -82,6 +83,11 @@ export interface LootDropState {
   resources: ResourceMap;
   ownerPlayerId?: PlayerId | null;
   protectedUntil?: number | null;
+  // Drift state (§12). Drops are launched with a small random velocity and spin the first tick they exist,
+  // so creation sites only need a position; undefined velocity means "not launched yet".
+  velocity?: Vec2;
+  rotation?: number;
+  angularVelocity?: number;
 }
 
 export interface ActiveMapState {
@@ -97,6 +103,8 @@ export interface ActiveMapState {
   foundries: Record<string, FoundryState>;
   drops: Record<string, LootDropState>;
   connections: MapConnection[];
+  // effects holds recent cosmetic events (dust, explosions) for snapshots. Runtime-only, never persisted.
+  effects?: EffectEvent[];
 }
 
 export interface WorldRuntimeState {

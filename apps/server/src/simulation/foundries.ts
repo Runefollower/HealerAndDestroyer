@@ -1,6 +1,7 @@
 import { enemyDefinitions } from "@healer/content";
 import { asEntityId, distance, type ActiveMapState, type FoundryState } from "@healer/shared";
 import { findNearestValidPosition, getEnemyCollisionRadius } from "./collision.js";
+import { emitEffect } from "./effects.js";
 
 export interface FoundryDamageResult {
   // hit identifies that damage landed on an active foundry.
@@ -36,6 +37,14 @@ export function applyFoundryDamage(map: ActiveMapState, position: { x: number; y
       position: { ...foundry.position },
       resources: { ferrite: 30, "plasma-crystal": 10 }
     };
+    emitEffect(map, {
+      id: `foundry-${foundry.id}-${tickCounter}`,
+      kind: "explosion",
+      position: { ...foundry.position },
+      radius: 64,
+      tint: 0xff8a4c,
+      tick: tickCounter
+    });
     return { hit: true, destroyedFoundry: foundry };
   }
   return { hit: true };

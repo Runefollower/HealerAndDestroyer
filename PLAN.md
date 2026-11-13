@@ -477,7 +477,15 @@ Next implementation target:
 
 ### 12. Cosmetic feedback: mining, debris, and destruction effects
 
-Status: not started. The current pass only has the short terrain burst from §2.9 (inferred client-side when a visible cell disappears).
+Status: in progress. Drifting debris and dust/explosion effects are done (first part); the mining drone swarm and the ship mining part are next.
+
+Completed so far:
+
+- drops drift server-side: `apps/server/src/simulation/drops.ts` launches every new drop (whatever created it) with a random direction, speed (14–34 px/s), and spin on its first tick, integrates it with exponential drag, and bounces it off terrain and structures (restitution 0.55). Drops spawned against a wall are nudged into open space; drops come to rest after a few seconds. Pickup runs before drift each tick so a drop under a ship is collected where it appeared. Tuning lives in `DROP_DRIFT` in `packages/shared/src/effects.ts`
+- snapshots carry drop `velocity`, `rotation`, and `angularVelocity`; the client extrapolates along the same drag curve (`driftOffset`) and blends wall bounces like other remote entities, and draws salvage rotated
+- effect events: the server records short-lived `EffectEvent`s on the map (`apps/server/src/simulation/effects.ts`) and snapshots include the visible ones for about one second (`effects`). Kinds: `dust` when a mining module clears a block, `rockBurst` when weapon fire breaks one, and `explosion` sized to the blast for unstable crystal detonations (blast radius), enemy kills (28 px), and foundry destruction (64 px)
+- client: `apps/client/src/game/worldEffects.ts` plays each event once (deduped by id, capped at 32 active, late events start part-way through), and `renderWorld.ts` draws them into two retained `Graphics` objects that are cleared and redrawn each frame (dust and bursts above terrain, explosions above ships), so effects allocate nothing per frame. These replace the old client-inferred terrain burst
+- player ship destruction has no event yet: call `emitEffect(map, { kind: "explosion", ... })` from the death/respawn work in §9 when a ship is destroyed
 
 The goal is to make mining, salvage, and destruction feel physical without changing who owns gameplay state: the server stays authoritative for anything that affects play (mining timing, drop positions, pickups), and the client owns pure visuals.
 
@@ -512,8 +520,8 @@ Dust and explosion effects:
 
 Next implementation target:
 
-- debris drift first (self-contained, server plus client, testable)
-- then dust/explosion effects, with destruction events added to snapshots
+- ~~debris drift first (self-contained, server plus client, testable)~~ done
+- ~~then dust/explosion effects, with destruction events added to snapshots~~ done (player ship explosion waits on §9 death/respawn)
 - then the mining job and drone swarm, together with the ship mining part
 - tests: mining job timing and cancellation, drop drift and terrain collision staying within map bounds, drops remaining collectible, and snapshot fields for jobs and destruction events
 
