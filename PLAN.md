@@ -115,6 +115,11 @@ The following major milestones are already implemented in the current prototype 
 - server validation accepts `submitShipDesign`, rejects invalid mounts/resources, persists the resulting stable ship design, and syncs active refits into runtime immediately
 - tests cover new ship design, active refit behavior, and invalid hardpoint/module submissions
 
+20. Procedural generation validation and map archetypes
+- generated maps are validated for anchor clearance, spacing, ship-sized reachability, volatile placement, and minimum materials, and generation throws on failure
+- named archetype configs (starter cavern, deep cavern, foundry arena, resource cavern, tunnel network) replace hard-coded generator constants and root/deeper settings
+- ore and unstable crystals can no longer block corridors, and minimum resource counts are guaranteed per archetype
+
 ## Summary
 
 The next phase should turn the current procedural cave prototype into a more content-ready exploration loop. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, first-pass client viewport culling, and centralized terrain material definitions. The next major unlock is using those foundations to make exploration, materials, objectives, and ship progression less placeholder-like and closer to the design document.
@@ -122,7 +127,7 @@ The next phase should turn the current procedural cave prototype into a more con
 The priority for the next phase is:
 
 1. expand the terrain/material economy from ferrite/plasma placeholders toward the GDD's rock/ore resource model
-2. harden procedural generation with validation, explicit map archetypes, safer placement, and better resource/encounter distribution
+2. harden procedural generation with validation, explicit map archetypes, safer placement, and better resource/encounter distribution (validation, archetypes, safe placement, and resource guarantees done; encounter distribution remains)
 3. start the persistent world-graph expansion path so discovered connections can generate and persist additional finite maps beyond the fixed root/deeper pair
 4. add encounter and objective variety around enemy infrastructure, defensive pockets, and foundry-adjacent pressure
 5. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression
@@ -333,19 +338,26 @@ Next implementation target:
 
 ### 8. Procedural generation hardening and world graph expansion
 
-Status: root/deeper generated maps complete; validation, archetypes, and discovery-based expansion next.
+Status: validation and archetypes complete; discovery-based world-graph expansion next.
 
 - the GDD recommends a graph of finite persistent cave maps, with each map carrying its own seed, layout, objectives, persistence state, and saved connections
 - the prototype currently has a fixed root map and fixed deeper map generated from stable seeds
-- the next generation pass should make maps more robust and provide hooks for future on-demand discovery
+- generation now fails fast on bad layouts and is driven by named archetype configs, so new maps can be generated from just a seed and archetype id
+
+Completed implementation target:
+
+- generator validation (`mapValidation.ts`) rejects layouts whose anchors are out of bounds, blocked, too close together, unreachable from spawn through ship-sized (3x3 clearance) passages, or near unstable crystals, and checks per-archetype minimum material counts: complete
+- explicit generation configs (`mapArchetypes.ts`) for starter cavern, deep cavern, foundry arena, resource cavern, and tunnel network: complete
+- root/deeper seeds, sizes, and archetypes moved into `prototypeMaps` config data; map summaries store the archetype id in `biomeId`: complete
+- fixed a generator bug where ore pockets and unstable crystals were placed on carved corridor floor, which left many seeds (including the shipped deeper map) without a ship-navigable path from spawn to the foundry and exits; corridor centerlines are now kept clear: complete
+- materials are topped up on exposed walls when random placement falls short, so each archetype's minimum resource counts are guaranteed: complete
+- tests sweep every archetype across many seeds, cover each validation rule, confirm maps regenerate from their persisted summary, restore persisted chunk edits over a regenerated baseline, and pin root/deeper terrain fingerprints: complete
 
 Next implementation target:
 
-- add generator validation helpers that fail fast when required anchors are disconnected, crowded, or colliding
-- introduce explicit generation parameter objects for starter-safe caves, foundry arenas, resource caverns, and tunnel networks
-- move hard-coded root/deeper generation settings into map summaries or generation config data
-- prepare connection records so undiscovered exits can reserve a destination seed and generate a persistent map when first used
-- add tests for generated safe placement, minimum navigable widths, resource distribution, and persistence deltas applied over a generated baseline
+- prepare connection records so undiscovered exits can reserve a destination seed and archetype, then generate a persistent map when first used
+- choose archetypes for discovered maps (for example by depth) and place foundry/fortification content according to archetype
+- tune the new archetypes through playtesting once they appear in the world graph
 
 ### 9. Encounter, objective, and enemy infrastructure growth
 
