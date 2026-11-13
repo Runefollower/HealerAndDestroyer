@@ -13,6 +13,7 @@
                     "build:client":  "npm run build --workspace @healer/client",
                     "dev:server":  "npm run dev --workspace @healer/server",
                     "dev:client":  "npm run dev --workspace @healer/client",
+                    "generate:fal":  "node scripts/generate-fal-image.mjs",
                     "generate:terrain":  "node scripts/generate-terrain-rock-sprites.mjs",
                     "generate:terrain-rock":  "node scripts/generate-terrain-rock-sprites.mjs",
                     "render:terrain-rock-preview":  "node scripts/render-terrain-rock-preview.mjs",
@@ -20,6 +21,7 @@
                     "test":  "vitest run"
                 },
     "devDependencies":  {
+                            "@fal-ai/client":  "^1.10.1",
                             "@types/node":  "^24.0.0",
                             "@types/pg":  "^8.20.0",
                             "@types/ws":  "^8.18.1",
