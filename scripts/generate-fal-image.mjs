@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { fal } from "@fal-ai/client";
@@ -95,10 +95,18 @@ writeFileSync(
 console.log(`Saved ${metadataPath}`);
 
 // Loads the root .env without overriding variables already exported in the shell.
+// Parsed by hand because process.loadEnvFile only exists on Node 20.12+.
 function loadLocalEnv() {
   const envPath = resolve(".env");
-  if (!process.env.FAL_KEY && existsSync(envPath)) {
-    process.loadEnvFile(envPath);
+  if (!existsSync(envPath)) return;
+  for (const rawLine of readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    const value = rawValue.replace(/^(['"])(.*)\1$/, "$2");
+    if (process.env[key] === undefined) process.env[key] = value;
   }
 }
 
