@@ -1,0 +1,13 @@
+{
+  "description": "Source texture for apps/client/public/assets/terrain/ancient-stone (image 3 of a 4-image batch). Tiles are cut by scripts/build-terrain-sprites-from-texture.mjs.",
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2df-39a2-73d0-b1b5-369be05608df",
+  "seed": 1915199247,
+  "input": {
+    "prompt": "Uniform repeating pattern of tightly packed ancient weathered sage-green and grey carved stone blocks and broken masonry fragments, faint engraved runes and geometric glyphs on the stone faces, dark gaps between blocks, covering 100 percent of the image, photographed straight down, evenly distributed with no clearing, no hole, no center focus, no path, soft light from the top-left, hand-painted 2D game texture",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "batchIndex": 3
+}

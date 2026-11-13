@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2dc-a062-78f1-9016-ad6983fe164b",
+  "seed": 1640381308,
+  "input": {
+    "prompt": "A small pickup item seen from above: a compact salvage crate holding orange metal scrap and glowing violet crystal shards together. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-dea6-7981-84a8-b6c74d55f1e2",
+      "01a1d2dc-ed4d-7513-99a3-38708f68b40c",
+      "01a1d2dc-fa28-7e42-899b-ba608bc56475",
+      "01a1d2dd-08a8-7ac3-8c02-e00e71ff7821"
+    ]
+  },
+  "batchIndex": 2,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

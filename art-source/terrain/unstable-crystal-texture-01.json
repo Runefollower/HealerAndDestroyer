@@ -1,0 +1,13 @@
+{
+  "description": "Source texture for apps/client/public/assets/terrain/unstable-crystal (image 1 of a 4-image batch). Tiles are cut by scripts/build-terrain-sprites-from-texture.mjs.",
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2df-39cc-7560-a438-7674a6eaf790",
+  "seed": 1287675392,
+  "input": {
+    "prompt": "Uniform repeating pattern of tightly packed fractured turquoise and teal crystal chunks with bright glowing aqua energy leaking through jagged cracks, volatile and dangerous looking, dark gaps between chunks, covering 100 percent of the image, photographed straight down, evenly distributed with no clearing, no hole, no center focus, no path, soft light from the top-left, hand-painted 2D game texture",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "batchIndex": 1
+}

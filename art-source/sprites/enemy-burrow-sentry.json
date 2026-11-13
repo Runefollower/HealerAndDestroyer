@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2db-f2c0-73d3-95b7-4597d7c67f28",
+  "seed": 214327303,
+  "input": {
+    "prompt": "A heavy hostile burrowing sentry machine seen from above, front pointing straight up toward the top of the image, armored beetle-like body with twin drill mandibles at the front, rust red and dark iron armor plates, a glowing red core. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-31ba-71d3-ae93-3e0610ed7cdd",
+      "01a1d2dc-3e73-7dc3-bd1d-9b7e49c103e2",
+      "01a1d2dc-4adc-7843-84ff-0b33da5283df",
+      "01a1d2dc-57bc-7490-b91b-773082948ef5"
+    ]
+  },
+  "batchIndex": 1,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

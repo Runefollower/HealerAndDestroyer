@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2dc-6dbb-71a2-bf83-5c1f565066a9",
+  "seed": 1393586606,
+  "input": {
+    "prompt": "A small pickup item seen from above: a compact cluster of glowing violet and purple plasma crystal shards set in a small metal clamp. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-a881-7dd0-b66c-ecbb1974e44f",
+      "01a1d2dc-b58d-7721-95ef-61fa5514dfbf",
+      "01a1d2dc-c1d1-7b00-8057-e63266d991d9",
+      "01a1d2dc-cd8a-7370-b189-ba2c71f0c471"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

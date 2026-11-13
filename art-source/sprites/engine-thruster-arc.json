@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2dd-9345-7152-97b4-0a75661551c4",
+  "seed": 1615861629,
+  "input": {
+    "prompt": "A single compact spaceship engine module seen from above, short and squat, rounded arc-shaped housing that curves around a recessed glowing orange exhaust port, the exhaust port faces straight down toward the bottom of the image, white and pale ice-blue metal casing with panel lines, no flame, no exhaust plume, no rocket body, no nose cone, the module alone with no ship attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dd-cfa9-7262-bbc7-29a6c18a32d8",
+      "01a1d2dd-dd14-72f3-a504-db76af484978",
+      "01a1d2dd-e8c2-7272-b3e4-8ce7e91b7709",
+      "01a1d2dd-f4d7-7312-88c1-e8b3a3d36027"
+    ]
+  },
+  "batchIndex": 4,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2da-fc5d-7772-94c7-6623a7666d18",
+  "seed": 935517445,
+  "input": {
+    "prompt": "A heavy armored support healer starship hull seen from above, nose pointing straight up toward the top of the image, broad hexagonal shield-like body with thick layered armor plating, glossy white and pale ice-blue armor with mint-green glowing healing emitter strips, a glowing cyan cockpit canopy, hull only with no engine nozzles and no guns attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2db-38ca-7212-903c-3c6d1d2511b9",
+      "01a1d2db-5033-7980-b694-cff245cd45e8",
+      "01a1d2db-600f-7190-a139-94645da24fed",
+      "01a1d2db-6db5-74c0-9c84-1292b2eab65b"
+    ]
+  },
+  "batchIndex": 3,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

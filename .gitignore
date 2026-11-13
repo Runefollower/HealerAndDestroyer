@@ -5,3 +5,6 @@ coverage/
 .vitest/
 *.tsbuildinfo
 
+.env
+.env.*
+!.env.example

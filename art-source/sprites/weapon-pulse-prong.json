@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2db-84cf-7a62-a506-36218723a77c",
+  "seed": 1351360221,
+  "input": {
+    "prompt": "A single twin-pronged forked energy cannon seen from above, two parallel prongs pointing straight up toward the top of the image with cyan energy arcing between them, white and pale ice-blue casing, the weapon alone with no ship attached. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2db-bf6a-7a51-8d7b-4e809123d2ed",
+      "01a1d2db-cf35-75f0-ae63-5f4e3683eff3",
+      "01a1d2db-f1e8-7d92-9d61-e97e580b81d2",
+      "01a1d2db-fccc-7ef3-9381-88cc9672a23c"
+    ]
+  },
+  "batchIndex": 2,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

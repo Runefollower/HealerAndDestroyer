@@ -1,0 +1,22 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d2dc-4a10-7502-8177-9a1d37958fa8",
+  "seed": 846815379,
+  "input": {
+    "prompt": "A menacing hostile machine foundry seen from directly above, symmetric octagonal fortress with four heavy armored arms, dark iron and rust red plating, a glowing orange-red furnace core in the center. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 4
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d2dc-8694-7890-a348-2aa991fe5cce",
+      "01a1d2dc-a163-7932-8665-3d78ebed3ef1",
+      "01a1d2dc-b2b6-7de2-9d6c-66ab21001a20",
+      "01a1d2dc-c07f-7a71-8655-07cb1134ea87"
+    ]
+  },
+  "batchIndex": 2,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}
