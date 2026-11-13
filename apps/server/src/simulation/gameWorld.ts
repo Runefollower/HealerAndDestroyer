@@ -16,6 +16,7 @@ import {
   scaleVec2,
   subtractResourceMaps,
   type ActivateModuleMessage,
+  type PlayerMovementInput,
   type ActiveMapState,
   type BuilderActionMessage,
   type ChangeMapMessage,
@@ -45,11 +46,22 @@ interface PlayerSessionState {
   playerId: ReturnType<typeof asPlayerId>;
   // Connection timestamp used for diagnostics and future session aging.
   connectedAt: number;
-  // Last client input tick processed for this session.
+  // Last client input tick applied by the simulation; echoed in snapshots so the client can reconcile.
   lastInputTick: number;
+  // Movement inputs received but not yet simulated. One is consumed per simulation tick, so ship motion
+  // advances at the fixed tick rate no matter how fast the client sends or how bursty the network is.
+  pendingMoveInputs: QueuedMoveInput[];
   // Per-session terrain memory that is written back to the player save on disconnect.
   terrainMemoryByMap: PlayerSave["terrainMemoryByMap"];
 }
+
+interface QueuedMoveInput extends PlayerMovementInput {
+  tick: number;
+}
+
+// A healthy client keeps one or two inputs queued. Past this, older inputs are applied at once so a burst
+// (or a client sending too fast) cannot build up input latency or extra movement over later ticks.
+const maxQueuedMoveInputs = 4;
 
 const logger = createLogger("gameWorld");
 type SubmitShipDesignMessage = Extract<BuilderActionMessage, { action: "submitShipDesign" }>;
@@ -133,6 +145,7 @@ export class GameWorld {
       playerId,
       connectedAt: Date.now(),
       lastInputTick: 0,
+      pendingMoveInputs: [],
       terrainMemoryByMap: structuredClone(player.terrainMemoryByMap)
     });
 
@@ -194,8 +207,7 @@ export class GameWorld {
 
     switch (parsed.type) {
       case "moveInput":
-        this.applyMovementInput(player, parsed);
-        this.sessions.get(playerId)!.lastInputTick = parsed.tick;
+        this.queueMovementInput(playerId, parsed);
         return [];
       case "fireWeapon":
         this.fireWeapon(player, parsed, now);
@@ -264,6 +276,7 @@ export class GameWorld {
       this.isBuilderSiteNearby(playerId),
       isDeeperPathUnlocked(this.runtime.maps["map-root"]),
       {
+        lastProcessedInputTick: session.lastInputTick,
         players: visibility.players,
         enemies: visibility.enemies,
         projectiles: visibility.projectiles,
@@ -278,6 +291,8 @@ export class GameWorld {
   // Integrates player ship movement and applies simple drag after collision resolution.
   private tickPlayers(map: ActiveMapState, deltaSeconds: number): void {
     for (const player of Object.values(map.players)) {
+      // Input is applied before integration, matching the client's replay order in its prediction.
+      this.consumeMovementInputs(player);
       // Resolve against terrain, structures, players, and enemies so ships cannot overlap blockers.
       const resolved = resolveMovement(map, player.position, player.velocity, deltaSeconds, {
         radius: getPlayerShipCollisionRadius(player),
@@ -444,9 +459,37 @@ export class GameWorld {
     return map.players[playerId];
   }
 
-  // Applies raw movement input by rotating the ship and adding thrust along its current facing.
-  private applyMovementInput(player: ReturnType<GameWorld["getPlayerShip"]>, input: { thrustForward: boolean; thrustReverse: boolean; rotateLeft: boolean; rotateRight: boolean }): void {
-    applyPlayerMovementInput(player, input);
+  // Queues a movement input sample for the next simulation tick. Inputs at or before the last applied tick
+  // are stale duplicates and are ignored.
+  private queueMovementInput(playerId: ReturnType<typeof asPlayerId>, input: QueuedMoveInput): void {
+    const session = this.sessions.get(playerId);
+    if (!session) {
+      return;
+    }
+    const newestQueuedTick = session.pendingMoveInputs.at(-1)?.tick ?? session.lastInputTick;
+    if (input.tick <= newestQueuedTick) {
+      return;
+    }
+    session.pendingMoveInputs.push({
+      thrustForward: input.thrustForward,
+      thrustReverse: input.thrustReverse,
+      rotateLeft: input.rotateLeft,
+      rotateRight: input.rotateRight,
+      tick: input.tick
+    });
+  }
+
+  // Applies this tick's queued movement input: one sample per tick, plus any backlog beyond the cap.
+  private consumeMovementInputs(player: ActiveMapState["players"][string]): void {
+    const session = this.sessions.get(player.playerId);
+    if (!session || session.pendingMoveInputs.length === 0) {
+      return;
+    }
+    const applyCount = Math.max(1, session.pendingMoveInputs.length - maxQueuedMoveInputs + 1);
+    for (const input of session.pendingMoveInputs.splice(0, applyCount)) {
+      applyPlayerMovementInput(player, input);
+      session.lastInputTick = input.tick;
+    }
   }
 
   // Handles weapon fire and queues feedback for non-cooldown failures.

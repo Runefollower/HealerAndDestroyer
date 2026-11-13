@@ -3,7 +3,7 @@ import { Application, Container } from "pixi.js";
 import type { InstalledModule, ServerMessage, SnapshotMessage } from "@healer/shared";
 import { attachInputListeners, createInputState, type InputState } from "./input.js";
 import { NetworkClient } from "./networkClient.js";
-import { predictSnapshotForRender } from "./predictSnapshot.js";
+import { LocalShipPredictor, predictSnapshotForRender } from "./predictSnapshot.js";
 import { createShipDesignAction, refreshBuilderTimers, renderBuilderState, updateBuilderDraft } from "./renderBuilder.js";
 import { renderHud, renderWorld, type HudSelections, type WorldRenderStats } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
@@ -65,6 +65,8 @@ export async function bootstrapClient(): Promise<void> {
   const notifications = document.getElementById("notifications")!;
   const framerate = document.getElementById("framerate")!;
   const input = createInputState();
+  // Predicts the local ship between snapshots from unacknowledged fixed-rate inputs.
+  const shipPredictor = new LocalShipPredictor();
   const network = new NetworkClient();
   const store = createClientStore();
   // tick is the local frame/input counter sent to the authoritative server with client actions.
@@ -190,6 +192,9 @@ export async function bootstrapClient(): Promise<void> {
   });
 
   network.onServerMessage((message) => {
+    if (message.type === "snapshot") {
+      shipPredictor.onSnapshot(message);
+    }
     // Some server messages refine the local server-time offset used by builder timers.
     const nextOffset = handleServerMessage(network, builder, hud, notifications, store, diagnostics, message, clockOffsetMs);
     if (typeof nextOffset === "number") {
@@ -248,20 +253,16 @@ export async function bootstrapClient(): Promise<void> {
       frameTimes.shift();
     }
 
-    // Movement input is sent every frame so the server remains authoritative about motion.
-    network.send({
-      type: "moveInput",
-      thrustForward: input.thrustForward,
-      thrustReverse: input.thrustReverse,
-      rotateLeft: input.rotateLeft,
-      rotateRight: input.rotateRight,
-      tick
-    });
+    // Movement input is sampled at the server's fixed tick rate (not per frame) so the server stays
+    // authoritative and the local prediction applies exactly the same steps.
+    for (const moveInput of shipPredictor.sampleInput(frameTime, input)) {
+      network.send(moveInput);
+    }
 
     const snapshot = store.latestSnapshot;
     if (snapshot) {
       const predictStart = performance.now();
-      const renderSnapshot = predictSnapshotForRender(snapshot, store.latestSnapshotReceivedAt, frameTime, input);
+      const renderSnapshot = predictSnapshotForRender(snapshot, store.latestSnapshotReceivedAt, frameTime, shipPredictor);
       diagnostics.predictMs = performance.now() - predictStart;
       // Camera update must happen before screen-to-world targeting.
       const renderStart = performance.now();

@@ -316,6 +316,7 @@ function toEnemySnapshot(enemy: EnemyState): EnemySnapshot {
     enemyTypeId: enemy.enemyTypeId,
     position: enemy.position,
     rotation: enemy.rotation,
+    velocity: { ...enemy.velocity },
     health: enemy.health
   };
 }
@@ -324,7 +325,8 @@ function toEnemySnapshot(enemy: EnemyState): EnemySnapshot {
 function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
   return {
     id: projectile.id,
-    position: projectile.position
+    position: projectile.position,
+    velocity: { ...projectile.velocity }
   };
 }
 

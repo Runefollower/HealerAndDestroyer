@@ -11,9 +11,6 @@ const terrainTileSize = 32;
 // Terrain sprites are intentionally larger than a tile to overlap and soften grid edges.
 const terrainSpriteSize = 46;
 const terrainSpriteInset = (terrainSpriteSize - terrainTileSize) / 2;
-// Projectile history stores previous positions so projectile effects can draw directional trails.
-const projectileHistory = new Map<string, { x: number; y: number; seenAt: number }>();
-const projectileHistoryTtlMs = 1_500;
 // Terrain bursts are short-lived effects emitted when a previously visible cell disappears.
 const terrainBurstLifetimeMs = 420;
 const maxTerrainBursts = 24;
@@ -204,7 +201,6 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   const now = typeof performance !== "undefined" ? performance.now() : Date.now();
   const paddedViewport = padViewport(viewport, viewportPadding);
   const layers = getRenderLayerState(worldLayer);
-  pruneProjectileHistory(snapshot.projectiles, now);
   const terrainRebuilt = refreshTerrainLayer(layers, snapshot, paddedViewport, now);
   pruneTerrainBursts(now);
   pruneExhaustParticles(now);
@@ -271,14 +267,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     if (!isPointInViewport(projectile.position.x, projectile.position.y, paddedViewport)) {
       continue;
     }
-    // Update projectile history after drawing so the next frame can infer trail direction.
-    const fx = createProjectileEffect(projectile, now);
-    layers.dynamicLayer.addChild(fx);
-    projectileHistory.set(projectile.id, {
-      x: projectile.position.x,
-      y: projectile.position.y,
-      seenAt: now
-    });
+    layers.dynamicLayer.addChild(createProjectileEffect(projectile, now));
   }
 
   for (const player of snapshot.players) {
@@ -753,17 +742,16 @@ function hasEngineModule(player: PlayerSnapshot): boolean {
   return player.modules.some((module) => module.hardpointId.toLowerCase().includes("engine") || module.moduleId.toLowerCase().includes("thruster"));
 }
 
-// Creates the Pixi projectile glow/trail effect from current and previous projectile positions.
+// Creates the Pixi projectile glow/trail effect, aligned with the projectile's authoritative velocity.
 function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Container {
-  // Previous position gives a real travel angle; fallback angle keeps stationary new projectiles visible.
-  const previous = projectileHistory.get(projectile.id);
-  const deltaX = projectile.position.x - (previous?.x ?? projectile.position.x);
-  const deltaY = projectile.position.y - (previous?.y ?? projectile.position.y);
-  const travelDistance = Math.hypot(deltaX, deltaY);
+  // Velocity gives a stable travel angle every frame. Inferring it from frame-to-frame movement flickered,
+  // because most render frames reuse the same snapshot position and fell back to a random angle.
+  const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
   const fallbackAngle = ((hashString(projectile.id) % 360) * Math.PI) / 180;
-  const angle = travelDistance > 0.5 ? Math.atan2(deltaY, deltaX) : fallbackAngle;
+  const angle = speed > 1 ? Math.atan2(projectile.velocity.y, projectile.velocity.x) : fallbackAngle;
   const pulse = 0.5 + 0.5 * Math.sin(now / 80 + hashString(projectile.id) * 0.03);
-  const trailLength = Math.max(10, Math.min(30, travelDistance * 2.4 + 10));
+  // Trail length matches 1/10 s of travel, the look the old per-snapshot delta produced at 10 Hz snapshots.
+  const trailLength = Math.max(10, Math.min(30, (speed / 10) * 2.4 + 10));
 
   // The projectile is drawn in local space and rotated to align with travel direction.
   const container = new Container();
@@ -791,16 +779,6 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   container.addChild(core);
 
   return container;
-}
-
-// Deletes stale projectile history entries once projectiles leave the snapshot or age out.
-function pruneProjectileHistory(projectiles: ProjectileSnapshot[], now: number): void {
-  const activeIds = new Set(projectiles.map((projectile) => projectile.id));
-  for (const [projectileId, entry] of projectileHistory.entries()) {
-    if (!activeIds.has(projectileId) || now - entry.seenAt > projectileHistoryTtlMs) {
-      projectileHistory.delete(projectileId);
-    }
-  }
 }
 
 // Produces a deterministic unsigned hash for effect variation.

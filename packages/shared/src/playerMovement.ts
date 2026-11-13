@@ -19,9 +19,11 @@ export interface PlayerMovementState {
 }
 
 // Shared movement tuning keeps authoritative server motion and client prediction aligned.
-export const PLAYER_ROTATION_STEP = 0.1;
-export const PLAYER_FORWARD_THRUST = 80;
-export const PLAYER_REVERSE_THRUST = 40;
+// Inputs are applied once per 30 Hz tick. Clients used to send (and the server applied) one input per render
+// frame, so these values are doubled from that era to keep the turn rate and top speed players had at 60 fps.
+export const PLAYER_ROTATION_STEP = 0.2;
+export const PLAYER_FORWARD_THRUST = 160;
+export const PLAYER_REVERSE_THRUST = 80;
 export const PLAYER_VELOCITY_RETENTION = 0.96;
 export const PLAYER_MOVEMENT_INPUT_RATE_HZ = 30;
 
