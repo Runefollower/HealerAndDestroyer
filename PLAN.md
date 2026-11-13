@@ -363,7 +363,7 @@ Completed implementation target (discovery-based expansion):
 - the deeper-exit lock generalizes the root rule: any map's deeper exit is locked while that map has an active foundry. `deeperPathUnlocked` in snapshots now describes the player's current map: complete
 - connections can be travelled both ways; the destination end of a connection is the way back up. Travel now requires the ship to be within about two tiles of the exit (`EXIT_TRAVEL_RADIUS`): complete
 - on startup, maps discovered in earlier sessions are regenerated from their summaries before persisted deltas are replayed, and worlds saved before this change get the missing deeper exit and map depths added: complete
-- snapshots carry `exits` (position, ascend/descend, discovered, locked) and `nearbyExitId`. The client draws exit rings with labels and E travels through a nearby exit when no builder site is in range (previously the client had no way to change maps at all): complete
+- snapshots carry `exits` (position, ascend/descend, discovered, locked) and `nearbyExitId`. The client draws exit rings with labels (also shown on the §11 minimap) and E travels through a nearby exit when no builder site is in range (previously the client had no way to change maps at all): complete
 - tests cover reservation determinism, archetype pools, chained discovery to depth 7, discovery through `GameWorld` (range check, generation, reuse on return trips, reload with mined terrain and the player on the generated map), foundry locks on a discovered foundry arena, and migration of an old saved world: complete
 
 Next implementation target:
@@ -416,14 +416,25 @@ Next implementation target:
 
 ### 11. Exploration information and player-facing map tools
 
-Status: server-side line of sight and terrain memory complete; minimap/sensors not started.
+Status: server-side line of sight, terrain memory, and first-pass minimap complete; sensors/scanner not started.
 
 - the GDD recommends fog-of-war minimap memory, scanner pings, and sensor modules for structure/salvage detection
 - this should follow the resource/generation pass so there is meaningful hidden information to reveal
 
+Minimap (first pass, complete):
+
+- `apps/client/src/game/minimap.ts` draws an HTML canvas overlay in the top-right corner, built from the snapshot the player already receives
+- every snapshot carries all chunks of the current map filtered through that player's per-map terrain memory, so the minimap needs no new server data and cannot reveal anything the main view hides
+- unknown cells are transparent, remembered cells are dimmed, and currently visible cells are drawn at full brightness with per-material colors (ore and crystal stand out from rock)
+- markers show the local ship (arrow with heading), other players, enemies, structures, and foundries, all from the server's visibility-filtered lists
+- `M` cycles local view (48x40 tiles around the ship, clamped to the map edge) -> whole-sector view -> hidden; the panel hides while the builder is open
+- the header shows the map id and an explored percentage (remembered plus visible cells over all cells in the map)
+- terrain is rebuilt once per snapshot into a one-pixel-per-tile image; markers are redrawn per frame from the predicted render snapshot
+- multiple maps: the image is derived from whichever map the snapshot names, so new procgen maps (§8) work without changes; memory per map is already persisted on the server
+
 Next implementation target:
 
-- add a small minimap or exploration summary that distinguishes unknown, remembered, and currently visible terrain
+- show map connections/exits on the minimap once §8 settles how undiscovered connections are represented (needs a small snapshot addition, revealed only after the exit tile has been seen)
 - prototype a scanner ping action or sensor module that reveals nearby structure, salvage, or connection hints
 - keep enemy movement hidden in unexplored fog unless a sensor rule explicitly reveals it
 - add tests for sensor visibility rules and remembered-map state persistence

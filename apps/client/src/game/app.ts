@@ -5,6 +5,7 @@ import { attachInputListeners, createInputState, type InputState } from "./input
 import { NetworkClient } from "./networkClient.js";
 import { WorldRenderPredictor } from "./predictSnapshot.js";
 import { createShipDesignAction, refreshBuilderTimers, renderBuilderState, updateBuilderDraft } from "./renderBuilder.js";
+import { MinimapOverlay } from "./minimap.js";
 import { renderHud, renderWorld, type HudSelections, type WorldRenderStats } from "./renderWorld.js";
 import { createClientStore, type ClientStore, type ModuleSelectionCapability, type UiToast } from "./store.js";
 import { preloadPlayerShipTextures } from "./playerShipAssets.js";
@@ -64,6 +65,7 @@ export async function bootstrapClient(): Promise<void> {
   const builder = document.getElementById("builder")!;
   const notifications = document.getElementById("notifications")!;
   const framerate = document.getElementById("framerate")!;
+  const minimap = new MinimapOverlay(document.getElementById("minimap")!);
   const input = createInputState();
   // Turns the latest snapshot into wall-clock-timed render poses (local ship prediction, entity extrapolation).
   const renderPredictor = new WorldRenderPredictor();
@@ -103,6 +105,10 @@ export async function bootstrapClient(): Promise<void> {
     if (event.key === "3") {
       cycleSelectedModule(store, "support");
       renderHudForStore(hud, store);
+    }
+    if (event.key === "m" || event.key === "M") {
+      // M cycles the minimap between local, whole-sector, and hidden (GDD control), a local UI preference.
+      minimap.cycleMode();
     }
     if (event.key === "0") {
       // 0 toggles the local frame-rate overlay without involving the server.
@@ -284,6 +290,10 @@ export async function bootstrapClient(): Promise<void> {
       }, {
         selfThrustForward: input.thrustForward
       });
+      // Minimap terrain rebuilds once per authoritative snapshot; markers follow the predicted poses.
+      minimap.updateTerrain(snapshot);
+      minimap.setSuppressed(store.builderOpen);
+      minimap.render(renderSnapshot);
       diagnostics.renderMs = performance.now() - renderStart;
       diagnostics.snapshotAgeMs = store.latestSnapshotReceivedAt === null ? 0 : Math.max(0, frameTime - store.latestSnapshotReceivedAt);
       const mouseWorld = screenToWorld(worldLayer, mouseScreen);

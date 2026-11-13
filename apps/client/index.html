@@ -76,6 +76,49 @@
         display: block;
       }
 
+      #minimap {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: grid;
+        gap: 6px;
+        padding: 10px 12px;
+        background: rgba(5, 10, 16, 0.72);
+        border: 1px solid rgba(132, 204, 255, 0.25);
+        border-radius: 14px;
+        backdrop-filter: blur(12px);
+        pointer-events: none;
+      }
+
+      #minimap.hidden,
+      #minimap.suppressed {
+        display: none;
+      }
+
+      .minimap-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .minimap-header .panel-title {
+        margin: 0;
+      }
+
+      .minimap-summary,
+      .minimap-hint {
+        font-size: 0.72rem;
+        color: rgba(233, 242, 255, 0.6);
+      }
+
+      .minimap-canvas {
+        display: block;
+        background: rgba(2, 5, 9, 0.85);
+        border-radius: 6px;
+        image-rendering: pixelated;
+      }
+
       #notifications {
         position: fixed;
         left: 16px;
@@ -312,6 +355,7 @@
   <body>
     <div id="app"></div>
     <div id="hud"></div>
+    <div id="minimap"></div>
     <div id="builder"></div>
     <div id="notifications"></div>
     <div id="framerate" aria-live="off"></div>
