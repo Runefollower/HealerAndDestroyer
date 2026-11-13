@@ -13,24 +13,25 @@ import {
   type PlayerSave,
   type WorldRuntimeState
 } from "@healer/shared";
-import { generateCaveMapLayout } from "./mapGeneration.js";
+import { prototypeMaps, type PrototypeMapDefinition } from "./mapArchetypes.js";
+import { generateMapLayout, type GeneratedMapLayout } from "./mapGeneration.js";
 
 export { CHUNK_SIZE } from "./mapGeneration.js";
 
-const rootMapSeed = "root-seed";
-const deeperMapSeed = "depth-seed";
-const rootMapChunkSize = { width: 12, height: 9 };
-const deeperMapChunkSize = { width: 10, height: 8 };
+// Generates a prototype map's baseline layout from its seed and archetype config data.
+function generatePrototypeLayout(definition: PrototypeMapDefinition): GeneratedMapLayout {
+  return generateMapLayout(definition.seed, definition.archetypeId);
+}
 
 // Defines the starter tunnel from the root map into the deeper prototype map.
 function createRootConnection(): MapConnection {
-  const rootLayout = generateCaveMapLayout(rootMapSeed, rootMapChunkSize.width, rootMapChunkSize.height);
-  const deeperLayout = generateCaveMapLayout(deeperMapSeed, deeperMapChunkSize.width, deeperMapChunkSize.height);
+  const rootLayout = generatePrototypeLayout(prototypeMaps.root);
+  const deeperLayout = generatePrototypeLayout(prototypeMaps.deeper);
   return {
     id: asConnectionId("conn-root-depth-1"),
-    sourceMapId: asMapId("map-root"),
+    sourceMapId: asMapId(prototypeMaps.root.mapId),
     sourceAnchor: rootLayout.sourceAnchor,
-    destinationMapId: asMapId("map-depth-1"),
+    destinationMapId: asMapId(prototypeMaps.deeper.mapId),
     destinationAnchor: deeperLayout.destinationAnchor,
     type: "tunnel",
     discovered: true
@@ -43,7 +44,7 @@ function createFoundryState(position: { x: number; y: number }): FoundryState {
   const foundry = structureDefinitions.find((entry) => entry.id === "enemy-foundry");
   return {
     id: asEntityId("foundry-root-1"),
-    mapId: asMapId("map-root"),
+    mapId: asMapId(prototypeMaps.root.mapId),
     ownerType: "enemy",
     structureTypeId: foundry?.id ?? "enemy-foundry",
     position,
@@ -62,8 +63,8 @@ function createFoundryState(position: { x: number; y: number }): FoundryState {
 // Creates the persistent world graph metadata used to bootstrap or seed storage.
 export function createWorldGraph(worldId = asWorldId("world-alpha")): PersistentWorld {
   // Stable ids keep tests, snapshots, and persisted records deterministic across process restarts.
-  const rootMapId = asMapId("map-root");
-  const deeperMapId = asMapId("map-depth-1");
+  const rootMapId = asMapId(prototypeMaps.root.mapId);
+  const deeperMapId = asMapId(prototypeMaps.deeper.mapId);
   const connection = createRootConnection();
 
   return {
@@ -82,19 +83,19 @@ export function createWorldGraph(worldId = asWorldId("world-alpha")): Persistent
     maps: {
       [rootMapId]: {
         id: rootMapId,
-        seed: rootMapSeed,
+        seed: prototypeMaps.root.seed,
         status: "active",
         connectionIds: [connection.id],
         lastActivatedAt: Date.now(),
-        biomeId: "starter-cavern"
+        biomeId: prototypeMaps.root.archetypeId
       },
       [deeperMapId]: {
         id: deeperMapId,
-        seed: deeperMapSeed,
+        seed: prototypeMaps.deeper.seed,
         status: "discovered",
         connectionIds: [connection.id],
         lastActivatedAt: null,
-        biomeId: "deep-cavern"
+        biomeId: prototypeMaps.deeper.archetypeId
       }
     },
     playerIds: [],
@@ -105,20 +106,20 @@ export function createWorldGraph(worldId = asWorldId("world-alpha")): Persistent
 // Creates in-memory active map state from prototype templates and content definitions.
 export function createActiveMaps(): Record<string, ActiveMapState> {
   // These ids and content references define the playable vertical-slice layout.
-  const rootMapId = asMapId("map-root");
-  const deeperMapId = asMapId("map-depth-1");
+  const rootMapId = asMapId(prototypeMaps.root.mapId);
+  const deeperMapId = asMapId(prototypeMaps.deeper.mapId);
   const connection = createRootConnection();
   const builderSite = structureDefinitions.find((entry) => entry.id === "builder-site");
   const scoutEnemy = enemyDefinitions[0];
-  const rootLayout = generateCaveMapLayout(rootMapSeed, rootMapChunkSize.width, rootMapChunkSize.height);
-  const deeperLayout = generateCaveMapLayout(deeperMapSeed, deeperMapChunkSize.width, deeperMapChunkSize.height);
+  const rootLayout = generatePrototypeLayout(prototypeMaps.root);
+  const deeperLayout = generatePrototypeLayout(prototypeMaps.deeper);
   const rootFoundry = createFoundryState(rootLayout.foundryPosition);
 
   // Root map contains the generated starter cave, builder site, first enemy, and objective foundry.
   return {
     [rootMapId]: {
       id: rootMapId,
-      seed: rootMapSeed,
+      seed: prototypeMaps.root.seed,
       width: rootLayout.widthTiles,
       height: rootLayout.heightTiles,
       chunks: rootLayout.chunks,
@@ -158,7 +159,7 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
     // Deeper map starts discovered but locked behind root foundry progression.
     [deeperMapId]: {
       id: deeperMapId,
-      seed: deeperMapSeed,
+      seed: prototypeMaps.deeper.seed,
       width: deeperLayout.widthTiles,
       height: deeperLayout.heightTiles,
       chunks: deeperLayout.chunks,
@@ -176,9 +177,9 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
 // Creates the first-time player save with starter resources, ship, modules, and spawn point.
 export function createDefaultPlayerSave(worldId: string, playerId: string): PlayerSave {
   // The ship id is derived from player id so repeated save creation stays predictable.
-  const mapId = asMapId("map-root");
+  const mapId = asMapId(prototypeMaps.root.mapId);
   const shipId = asShipId(`ship-${playerId}`);
-  const rootLayout = generateCaveMapLayout(rootMapSeed, rootMapChunkSize.width, rootMapChunkSize.height);
+  const rootLayout = generatePrototypeLayout(prototypeMaps.root);
   return {
     playerId: asPlayerId(playerId),
     worldId: asWorldId(worldId),
@@ -216,7 +217,7 @@ export function createDefaultPlayerSave(worldId: string, playerId: string): Play
 export function createRuntimeState(): WorldRuntimeState {
   return {
     worldId: "world-alpha",
-    activeMapId: asMapId("map-root"),
+    activeMapId: asMapId(prototypeMaps.root.mapId),
     maps: createActiveMaps()
   };
 }
