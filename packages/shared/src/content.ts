@@ -85,12 +85,38 @@ export interface WeaponDefinition {
   cooldownMs: number;
 }
 
+// EnemyRole picks the AI behavior: melee units ram for contact damage, ranged units hold distance and
+// shoot, and turrets are stationary fortification defenses that shoot whatever they can see.
+export type EnemyRole = "melee" | "ranged" | "turret";
+
+export interface EnemyRangedAttack {
+  // damage is hull removed per bolt that hits a player ship.
+  damage: number;
+  // range is the farthest distance (pixels) at which the enemy opens fire.
+  range: number;
+  // cooldownMs is the time between shots.
+  cooldownMs: number;
+  // projectileSpeed is bolt speed in pixels per second.
+  projectileSpeed: number;
+  // preferredRange is the distance a mobile ranged enemy tries to hold from its target.
+  preferredRange: number;
+}
+
 export interface EnemyDefinition {
   id: string;
   name: string;
+  role: EnemyRole;
   maxHealth: number;
+  // speed is movement speed in pixels per second; turrets use 0.
   speed: number;
+  // contactDamage is hull removed per contact hit, at most once per attackCooldownMs.
   contactDamage: number;
+  attackCooldownMs: number;
+  // visionRadiusTiles is how far the enemy can see a player through line of sight.
+  visionRadiusTiles: number;
+  // collisionRadius is the enemy body radius in pixels for movement, hits, and placement.
+  collisionRadius: number;
+  ranged?: EnemyRangedAttack;
   salvage: ResourceMap;
 }
 

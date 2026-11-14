@@ -116,7 +116,9 @@ Key files:
 - `apps/server/src/simulation/moduleActions.ts`
   - weapon fire, mining activation, and support activation rules
 - `apps/server/src/simulation/foundries.ts`
-  - foundry spawning, enemy counts, destruction, and objective unlock state
+  - foundry creation from archetype config, enemy-mix spawning, fortification turret slots and slow rebuilding, depth-scaled rewards, destruction, and objective unlock state
+- `apps/server/src/simulation/combat.ts`
+  - enemy AI by role (melee, ranged, turret), contact and ranged attacks, player damage and respawn invulnerability, enemy kills, and wreck salvage rules for destroyed ships
 - `apps/server/src/simulation/terrain.ts`
   - chunk/tile addressing and mining result application
 - `apps/server/src/simulation/mapPersistence.ts`

@@ -1,4 +1,4 @@
-import { TERRAIN_CELL_TYPES } from "@healer/shared";
+import { TERRAIN_CELL_TYPES, type ResourceMap } from "@healer/shared";
 
 // MapArchetypeId names a reusable generation recipe. Persistent map summaries store it as `biomeId`
 // so a map can be regenerated from just its seed and archetype.
@@ -21,11 +21,25 @@ export interface MapValidationRules {
 
 // MapContentConfig says what gameplay content a discovered map of this archetype is populated with.
 // The fixed root map places its own builder and foundry in createWorld.ts and ignores this.
+export interface FoundryContentConfig {
+  // Health is the content definition's maxHealth times healthMultiplier, scaled up further by map depth.
+  healthMultiplier: number;
+  spawnCap: number;
+  spawnCooldownMs: number;
+  // enemyMix is the cycle of enemy type ids the foundry produces (see foundries.ts tickFoundries).
+  enemyMix: string[];
+  // defenseCount is how many turrets ring the foundry as a fortification pocket. Deeper maps add more.
+  defenseCount: number;
+  // defenseRebuildMs is the wait after a defense is lost (or rebuilt) before the next rebuild.
+  defenseRebuildMs: number;
+  // reward is the base salvage dropped on destruction; foundries.ts scales it by depth.
+  reward: ResourceMap;
+}
+
 export interface MapContentConfig {
-  // foundry places an enemy foundry at the layout's foundry anchor, or null for no foundry. Health is
-  // the content definition's maxHealth times healthMultiplier, scaled up further by map depth.
+  // foundry places an enemy foundry at the layout's foundry anchor, or null for no foundry.
   // While a map has an active foundry its deeper exit stays locked.
-  foundry: { healthMultiplier: number; spawnCap: number; spawnCooldownMs: number } | null;
+  foundry: FoundryContentConfig | null;
 }
 
 export interface MapGenerationConfig {
@@ -71,8 +85,18 @@ const defaultValidationRules: MapValidationRules = {
   }
 };
 
-// standardFoundryContent matches the root foundry's tuning.
-const standardFoundryContent: MapContentConfig = { foundry: { healthMultiplier: 1, spawnCap: 3, spawnCooldownMs: 3000 } };
+// standardFoundry is the root foundry's tuning: mostly drones with one ranged sentinel, guarded by two
+// turrets that come back slowly while the foundry stands.
+const standardFoundry: FoundryContentConfig = {
+  healthMultiplier: 1,
+  spawnCap: 3,
+  spawnCooldownMs: 3000,
+  enemyMix: ["drone-scout", "drone-scout", "sentinel"],
+  defenseCount: 2,
+  defenseRebuildMs: 40000,
+  reward: { ferrite: 30, "plasma-crystal": 10 }
+};
+const standardFoundryContent: MapContentConfig = { foundry: standardFoundry };
 
 // baseCaveConfig holds the original prototype tuning; the starter and deep caves keep it so the
 // existing root and deeper maps stay recognisable.
@@ -128,7 +152,17 @@ export const mapArchetypes: Record<MapArchetypeId, MapGenerationConfig> = {
     orePocketTileArea: 160,
     plasmaChance: 0.12,
     // A fortified foundry that takes longer to break and fields more defenders.
-    content: { foundry: { healthMultiplier: 2, spawnCap: 5, spawnCooldownMs: 2500 } },
+    content: {
+      foundry: {
+        healthMultiplier: 2,
+        spawnCap: 5,
+        spawnCooldownMs: 2500,
+        enemyMix: ["burrow-sentry", "sentinel", "drone-scout", "sentinel", "burrow-sentry"],
+        defenseCount: 4,
+        defenseRebuildMs: 30000,
+        reward: { ferrite: 45, "plasma-crystal": 16, stone: 10 }
+      }
+    },
     validation: {
       ...defaultValidationRules,
       anchorClearanceTiles: 2,
@@ -175,7 +209,13 @@ export const mapArchetypes: Record<MapArchetypeId, MapGenerationConfig> = {
     roomSizeMin: 4,
     roomSizeVariance: 4,
     orePocketTileArea: 130,
-    content: { foundry: { healthMultiplier: 1, spawnCap: 3, spawnCooldownMs: 3500 } }
+    content: {
+      foundry: {
+        ...standardFoundry,
+        spawnCooldownMs: 3500,
+        enemyMix: ["drone-scout", "sentinel", "burrow-sentry"]
+      }
+    }
   }
 };
 
