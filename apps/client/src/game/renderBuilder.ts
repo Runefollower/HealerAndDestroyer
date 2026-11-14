@@ -1,4 +1,4 @@
-import { getHullDefinition, hullDefinitions, moduleDefinitions } from "@healer/content";
+import { deriveShipStats, getHullDefinition, hullDefinitions, moduleDefinitions, type ShipStats } from "@healer/content";
 import type { BuilderActionMessage, BuilderStateMessage, BuilderShipState, ResourceMap } from "@healer/shared";
 import { addResourceMaps, hasEnoughResources } from "@healer/shared";
 import type { BuilderDesignDraft } from "./store.js";
@@ -35,6 +35,7 @@ interface DesignState {
   activeModule: ModuleOption;
   craftCost: ResourceMap;
   totalCost: ResourceMap;
+  stats: ShipStats;
   canCommit: boolean;
   commitBlocker: string | null;
 }
@@ -171,7 +172,7 @@ export function renderBuilderState(
           <strong>${design.mode === "new" ? design.hull.name : design.shipState?.ship.name}</strong><br/>
           Hull: ${design.hull.name}<br/>
           Build time: ${formatDuration(design.hull.buildTimeMs)}<br/>
-          Mass: ${design.hull.mass + sumModuleMass(design.previewModules)} | Power: ${sumModulePower(design.previewModules)}/${design.hull.powerCapacity}
+          ${renderStatsPreview(design.stats)}
         </div>
       </div>
       ${renderHardpointEditor(design)}
@@ -254,7 +255,13 @@ function resolveDesignState(draft: BuilderDesignDraft, message: BuilderStateMess
   const craftCost = getCraftCost(previewModules, message, shipState);
   const totalCost = mode === "new" ? addResourceMaps(hull.buildCost, craftCost) : craftCost;
   const canAfford = hasEnoughResources(inventory, totalCost);
-  const commitBlocker = canAfford ? null : "Not enough resources for this design.";
+  const stats = deriveShipStats(hull.id, previewModules);
+  const powerOk = stats.powerDraw <= stats.powerOutput;
+  const commitBlocker = !powerOk
+    ? "Loadout draws more power than the reactor provides. Add a power module or swap to lighter modules."
+    : canAfford
+      ? null
+      : "Not enough resources for this design.";
 
   return {
     mode,
@@ -268,7 +275,8 @@ function resolveDesignState(draft: BuilderDesignDraft, message: BuilderStateMess
     activeModule,
     craftCost,
     totalCost,
-    canCommit: canAfford,
+    stats,
+    canCommit: canAfford && powerOk,
     commitBlocker
   };
 }
@@ -442,14 +450,13 @@ function wrapIndex(index: number, length: number): number {
   return ((index % length) + length) % length;
 }
 
-// Sums selected module mass for preview stats.
-function sumModuleMass(modules: Array<{ moduleId: string }>): number {
-  return modules.reduce((total, module) => total + (moduleDefinitions.find((entry) => entry.id === module.moduleId)?.mass ?? 0), 0);
-}
-
-// Sums selected module power use for preview stats.
-function sumModulePower(modules: Array<{ moduleId: string }>): number {
-  return modules.reduce((total, module) => total + (moduleDefinitions.find((entry) => entry.id === module.moduleId)?.powerUse ?? 0), 0);
+// Shows the derived flight, power, and durability numbers the server will use for this loadout.
+function renderStatsPreview(stats: ShipStats): string {
+  const turnDegreesPerSecond = Math.round((stats.movement.rotationStep * 30 * 180) / Math.PI);
+  return `Mass: ${stats.totalMass} | Thrust: ${stats.totalThrust}<br/>
+          Accel: ${Math.round(stats.movement.forwardAcceleration)} | Turn: ${turnDegreesPerSecond}°/s<br/>
+          Power: ${stats.powerDraw}/${stats.powerOutput}${stats.powerDraw > stats.powerOutput ? " (overloaded)" : ""}<br/>
+          Energy: ${stats.energyCapacity} (+${stats.energyRegenPerSecond.toFixed(1)}/s) | Hull: ${stats.maxHull}`;
 }
 
 // Formats resources into compact builder copy.

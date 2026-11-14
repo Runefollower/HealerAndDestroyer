@@ -1,0 +1,20 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d579-ba05-7421-a2f4-f4ca3026b4fb",
+  "seed": 1747404415,
+  "input": {
+    "prompt": "A large heavy twin-nozzle rocket engine module for a starship seen from above, exhaust nozzles pointing straight down toward the bottom of the image, chunky dark steel housing with orange glowing exhaust rings, engine module only, no flame. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 2
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d579-df07-7903-968b-5eb43b33463b",
+      "01a1d579-eb96-7f91-b47c-6e3238a8f3ad"
+    ]
+  },
+  "batchIndex": 2,
+  "note": "Background removed with BiRefNet, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

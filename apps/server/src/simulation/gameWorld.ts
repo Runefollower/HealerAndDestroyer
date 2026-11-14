@@ -1,4 +1,4 @@
-import { getHullDefinition, moduleDefinitions } from "@healer/content";
+import { deriveShipStats, getHullDefinition, getShipStats, moduleDefinitions } from "@healer/content";
 import { createInMemoryPersistence, type PersistenceBundle } from "@healer/persistence";
 import {
   addResourceMaps,
@@ -398,6 +398,9 @@ export class GameWorld {
   // then integration), matching the client's replay exactly. Without input it coasts one tick at a time.
   private tickPlayers(map: ActiveMapState, deltaSeconds: number): void {
     for (const player of Object.values(map.players)) {
+      // Thrust, turn rate, and energy recharge all come from the ship's current hull and loadout.
+      const stats = getShipStats(player.hullId, player.modules);
+      player.power = Math.min(player.maxPower, player.power + stats.energyRegenPerSecond * deltaSeconds);
       const session = this.sessions.get(player.playerId);
       const queued = session?.pendingMoveInputs ?? [];
       if (!session || queued.length === 0) {
@@ -415,7 +418,7 @@ export class GameWorld {
       session.starvedTicks = 0;
       const stepCount = queued.length > catchUpQueueLength ? 2 : 1;
       for (const input of queued.splice(0, stepCount)) {
-        applyPlayerMovementInput(player, input);
+        applyPlayerMovementInput(player, input, stats.movement);
         session.lastInputTick = input.tick;
         this.stepPlayerMovement(map, player, movementStepSeconds);
       }
@@ -685,7 +688,8 @@ export class GameWorld {
   private fireWeapon(player: ReturnType<GameWorld["getPlayerShip"]>, message: FireWeaponMessage, now: number): void {
     const map = this.runtime.maps[player.mapId];
     const result = applyWeaponFire(map, player, message, now, () => asEntityId(`projectile-${this.tickCounter}-${Math.random().toString(16).slice(2, 6)}`));
-    if (!result.ok && result.code !== "weapon_on_cooldown") {
+    // Cooldown and empty-energy refusals are expected while Space is held; the HUD energy bar explains them.
+    if (!result.ok && result.code !== "weapon_on_cooldown" && result.code !== "insufficient_energy") {
       this.queueAttemptFailure(player.playerId, result.code, now);
     }
   }
@@ -925,7 +929,14 @@ export class GameWorld {
       const moduleDefinition = moduleDefinitions.find((entry) => entry.id === message.targetId);
       const hardpoint = hull?.hardpoints.find((entry) => entry.id === message.hardpointId);
       const availableModule = playerSave.craftedModules.find((entry) => entry.moduleId === message.targetId && entry.quantity > 0);
-      if (ship && ship.status !== "building" && hull && moduleDefinition && hardpoint && availableModule && hardpoint.type === moduleDefinition.slotType) {
+      const fitsPowerBudget =
+        !!ship &&
+        !!moduleDefinition &&
+        this.fitsPowerBudget(ship.hullId, [...ship.modules.filter((entry) => entry.hardpointId !== message.hardpointId), { moduleId: moduleDefinition.id }]);
+      if (ship && moduleDefinition && !fitsPowerBudget) {
+        this.queueActionFeedback(playerId, "ship_design_power_overload", "Install Blocked", "That module would draw more power than the ship's reactor provides.", "warning", now);
+      }
+      if (ship && ship.status !== "building" && hull && moduleDefinition && hardpoint && availableModule && hardpoint.type === moduleDefinition.slotType && fitsPowerBudget) {
         const existingModule = ship.modules.find((entry) => entry.hardpointId === message.hardpointId);
         if (existingModule) {
           // Replacing a module returns the previous module to crafted inventory before installing the new one.
@@ -1010,7 +1021,7 @@ export class GameWorld {
         name: hull.name,
         hullId: hull.id,
         modules: preparedDesign.installedModules,
-        hullIntegrity: hull.baseHull,
+        hullIntegrity: deriveShipStats(hull.id, preparedDesign.installedModules).maxHull,
         status: hull.buildTimeMs > 0 ? "building" : "ready",
         buildStartedAt: now,
         buildCompleteAt
@@ -1123,7 +1134,18 @@ export class GameWorld {
       });
     }
 
+    if (!this.fitsPowerBudget(hull.id, installedModules)) {
+      this.queueActionFeedback(playerId, "ship_design_power_overload", "Design Blocked", "That loadout draws more power than the hull and its power modules provide.", "warning", now);
+      return null;
+    }
+
     return { installedModules, availableModules, craftCost };
+  }
+
+  // A loadout is legal only if the modules' combined power use fits within the hull reactor plus power modules.
+  private fitsPowerBudget(hullId: string, modules: Pick<InstalledModule, "moduleId">[]): boolean {
+    const stats = deriveShipStats(hullId, modules);
+    return stats.powerDraw <= stats.powerOutput;
   }
 
   // Converts an internal availability map back into the persistence stack array shape.
@@ -1314,6 +1336,9 @@ export class GameWorld {
         return;
       case "support_target_full_hull":
         this.queueActionFeedback(playerId, code, "Hull Stable", "That ship is already at full hull integrity.", "info", now);
+        return;
+      case "insufficient_energy":
+        this.queueActionFeedback(playerId, code, "Energy Low", "Your energy store is recharging. Unused reactor power speeds it up.", "info", now, 2500);
         return;
       case "module_capability_missing":
         this.queueActionFeedback(playerId, code, "Module Offline", "The selected module cannot perform that action.", "warning", now);

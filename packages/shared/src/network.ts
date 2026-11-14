@@ -196,6 +196,9 @@ export interface SnapshotMessage {
   chunks: ChunkSnapshot[];
   inventory: ResourceMap;
   selfModules: InstalledModule[];
+  // selfEnergy and selfMaxEnergy describe the local ship's energy store, spent by weapons and support tools.
+  selfEnergy: number;
+  selfMaxEnergy: number;
   builderSiteNearby: boolean;
   deeperPathUnlocked: boolean;
   exits: ExitSnapshot[];
@@ -343,6 +346,8 @@ export function createSnapshotMessage(
       })),
     inventory: self.inventory,
     selfModules: structuredClone(self.modules),
+    selfEnergy: self.power,
+    selfMaxEnergy: self.maxPower,
     builderSiteNearby,
     deeperPathUnlocked,
     exits: overrides.exits ?? [],

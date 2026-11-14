@@ -1,0 +1,20 @@
+{
+  "model": "fal-ai/flux/dev",
+  "requestId": "01a1d579-b9d9-75d1-9d5b-d22e8baa98f8",
+  "seed": 1656654185,
+  "input": {
+    "prompt": "A long slim railgun cannon barrel module for a starship seen from above, pointing straight up toward the top of the image, twin parallel metal rails with glowing violet energy coils between them, dark steel body, weapon module only. Top-down view from directly above, orthographic, flat 2D game sprite for a sci-fi cave shooter, crisp clean silhouette, polished hand-painted sci-fi style with subtle panel lines, soft light from the top-left, centered and fully visible with margin around it, isolated on a plain flat light grey background, no cast shadow, no text, no frame",
+    "output_format": "png",
+    "image_size": "square_hd",
+    "num_images": 2
+  },
+  "backgroundRemoval": {
+    "model": "fal-ai/birefnet/v2",
+    "requestIds": [
+      "01a1d579-d9aa-7671-bdd1-cab93f0902ea",
+      "01a1d579-dfae-7c53-96aa-0e6e8690e547"
+    ]
+  },
+  "batchIndex": 1,
+  "note": "Background removed with BiRefNet, rotated 45 degrees counterclockwise so the barrel points up, then trimmed. scripts/build-sprites-from-source.mjs turns this into the game sprite."
+}

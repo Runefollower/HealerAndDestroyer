@@ -11,7 +11,9 @@ const defaultStructureRadius = 24;
 // Ship hull ids map to gameplay collision radii in world-space pixels.
 const shipCollisionRadii: Record<string, number> = {
   "sparrow-scout": 14,
-  "warden-healer": 16
+  "warden-healer": 16,
+  "breaker-destroyer": 17,
+  "delver-miner": 17
 };
 // Structure type ids map to gameplay collision radii in world-space pixels.
 const structureCollisionRadii: Record<string, number> = {

@@ -436,7 +436,7 @@ Next implementation target:
 
 ### 10. Ship design workstation and module content progression
 
-Status: ship design workstation complete; content breadth next.
+Status: ship design workstation and first hull/module content pass complete; tuning next.
 
 - the GDD's immediate next steps call for turning hulls and module families into concrete data tables with costs, weights, power use, health, and build times
 - the current prototype has enough builder and module plumbing that adding new archetype content should now produce visible gameplay differences
@@ -452,18 +452,30 @@ Completed implementation target:
 - persist the resulting ship design as the stored ship record and replicate the active design to the world renderer so visible hull/module parts match the chosen loadout: complete
 - modifying an existing ship is instant at the ship-building location for the current pass
 
+Hull and module content pass (2026-11-13): complete
+
+- four hulls now cover the scout, healer, destroyer, and miner directions: Sparrow Scout, Warden Healer, Breaker Destroyer (twin forward weapon mounts, power core, armor), and Delver Miner (two utility mounts for mining tools, light gun, armor nose); a heavy hull is deliberately deferred
+- new modules: Heavy Drive (engine), Rail Lance (slow, long-range, high-damage weapon), Bore Drill (short-range, faster, richer mining tool), Micro Reactor (power: more output and energy storage); Reactive Plating now adds 30 max hull
+- `deriveShipStats` in `packages/content/src/shipStats.ts` turns hull plus loadout into mass, thrust, torque, power budget, energy store and recharge, and max hull; the server, client prediction, and builder preview all use it
+- movement is derived through shared `deriveShipMovementProfile` (acceleration = 40 x thrust / mass, turn step = 0.2 x torque / mass, clamped) and passed into `applyPlayerMovementInput`, so client replay matches the server; the starter Sparrow reproduces the old constants exactly, so its PR #4 feel is unchanged and heavier builds are slower
+- power is a budget: module `powerUse` must fit inside hull `powerCapacity` plus power modules, enforced server-side on design submit and install (`ship_design_power_overload`) and shown in the builder; unused budget speeds energy recharge (8 + 0.5 per spare point per second)
+- weapon shots and repair pulses spend energy (`insufficient_energy`); snapshots carry `selfEnergy`/`selfMaxEnergy` and the HUD shows an energy bar; mining does not spend energy yet because §12 will rework mining
+- fire-group rule: Space fires every installed weapon by default; `1` cycles between all weapons and each single weapon
+- engine and weapon art is placed per module on its hardpoint, so twin-gun hulls show both guns; new sprites (two variants per new hull, heavy drive, rail lance) came from fal via `art-source/sprites`
+
 Loose ends from the current build:
 
-- only two hulls exist (Sparrow Scout, Warden Healer) and one weapon (Pulse Cannon); there is no destroyer, miner, or heavy hull yet
-- module `mass` and `powerUse` and hull `mass` and `powerCapacity` are validated at design time but have no effect in play: every ship uses the same shared thrust and turn constants, and module use never spends power
-- weapons fire from their own hardpoint, but `Space` fires only the selected weapon slot, so a multi-weapon hull would need a fire-group rule
+- mining `terrainDamage` is still unused by `mineTerrainAt`; Bore Drill differs from the laser through range, cooldown, and yield only. Revisit with the §12 drone swarm
+- module `currentHealth` and `rarity` have no gameplay effect yet; module damage belongs with the §9 combat work
+- no heavy hull, cargo modules, or maneuvering-jet modules yet; utility, support, power, and armor modules have no on-ship art yet (§12 covers the visible mining module)
+- energy and power numbers are first-pass and should be re-tuned once §9 enemies hit harder
 
 Next implementation target:
 
-- add or tune first-pass hull/module data for the scout, healer, destroyer, miner, and heavy directions without over-expanding the roster
-- make material costs align with the new terrain/resource economy so exploration feeds ship choices
-- derive acceleration and turn rate from thrust and mass (GDD §8.3) through the shared movement code so client prediction stays in sync, and spend or cap power on module use
-- add tests for content validity, build costs, mount compatibility, module install rules, saved ship design persistence, and active-ship behavior across the expanded catalog
+- play-test the four hulls and tune mass, thrust, energy, and costs against the §9 encounter changes
+- make material costs align with the new terrain/resource economy so exploration feeds ship choices (the new hulls lean on stone and ferrite; plasma crystal gates the Rail Lance and Micro Reactor)
+- decide whether thrust should also draw energy, and whether a heavy hull is needed once encounters scale
+- add saved-ship-design persistence tests across the expanded catalog (content validity, power budget, mount compatibility, and active-ship behavior are covered)
 
 ### 11. Exploration information and player-facing map tools
 

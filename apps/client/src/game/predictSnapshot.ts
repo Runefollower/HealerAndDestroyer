@@ -1,8 +1,11 @@
+import { getShipStats } from "@healer/content";
 import {
   applyPlayerMovementInput,
+  DEFAULT_SHIP_MOVEMENT_PROFILE,
   driftOffset,
   integratePlayerMovement,
   PLAYER_MOVEMENT_INPUT_RATE_HZ,
+  type ShipMovementProfile,
   type MoveInputMessage,
   type PlayerMovementInput,
   type PlayerMovementState,
@@ -22,6 +25,16 @@ const maxExtrapolationSeconds = 0.2;
 const correctionTimeConstantSeconds = 0.1;
 // Corrections larger than this are teleports (respawn, map change) and are applied immediately.
 const maxSmoothedCorrectionPixels = 96;
+
+// Movement profile for the local ship's hull and loadout. Unknown content (a stale client) falls back to the
+// default profile rather than breaking the render loop; server corrections then keep the ship honest.
+function resolveMovementProfile(self: PlayerSnapshot): ShipMovementProfile {
+  try {
+    return getShipStats(self.hullId, self.modules).movement;
+  } catch {
+    return DEFAULT_SHIP_MOVEMENT_PROFILE;
+  }
+}
 
 interface PendingInput extends PlayerMovementInput {
   tick: number;
@@ -119,10 +132,12 @@ export class LocalShipPredictor {
   // Same as replay, but also reports the rotation before the newest step for render interpolation.
   private replayWithPrevious(self: PlayerSnapshot): { predicted: PlayerSnapshot; rotationBeforeLastStep: number } {
     const predicted = clonePlayer(self);
+    // The same hull+loadout derivation the server uses, so heavier ships replay exactly as they simulate.
+    const movement = resolveMovementProfile(self);
     let rotationBeforeLastStep = predicted.rotation;
     for (const input of this.pending) {
       rotationBeforeLastStep = predicted.rotation;
-      applyPlayerMovementInput(predicted, input);
+      applyPlayerMovementInput(predicted, input, movement);
       integratePlayerMovement(predicted, inputStepSeconds);
     }
     return { predicted, rotationBeforeLastStep };

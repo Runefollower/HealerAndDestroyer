@@ -9,6 +9,7 @@ export * from "./enemies.js";
 export * from "./hulls.js";
 export * from "./modules.js";
 export * from "./resources.js";
+export * from "./shipStats.js";
 export * from "./structures.js";
 
 export function getHullDefinition(hullId: string): HullDefinition {
@@ -37,6 +38,12 @@ export function validateContent(): void {
   }
 
   for (const hull of hullDefinitions) {
+    if (hull.baseThrust <= 0 || hull.torque <= 0 || hull.mass <= 0) {
+      throw new Error(`Hull ${hull.id} needs positive mass, base thrust, and torque.`);
+    }
+    if (new Set(hull.hardpoints.map((hardpoint) => hardpoint.id)).size !== hull.hardpoints.length) {
+      throw new Error(`Hull ${hull.id} has duplicate hardpoint ids.`);
+    }
     if (hull.hardpoints.length === 0) {
       throw new Error(`Hull ${hull.id} has no hardpoints.`);
     }
@@ -53,6 +60,18 @@ export function validateContent(): void {
 
     if (module.capabilities.includes("weapon") && !module.weapon) {
       throw new Error(`Module ${module.id} is missing weapon config.`);
+    }
+    if (module.weapon && !weaponDefinitions.some((weapon) => weapon.id === module.weapon?.weaponId)) {
+      throw new Error(`Module ${module.id} references unknown weapon ${module.weapon.weaponId}.`);
+    }
+    if (module.slotType === "engine" && !module.engine) {
+      throw new Error(`Engine module ${module.id} is missing engine config.`);
+    }
+    if (module.slotType === "power" && !module.power) {
+      throw new Error(`Power module ${module.id} is missing power config.`);
+    }
+    if (module.slotType === "armor" && !module.armor) {
+      throw new Error(`Armor module ${module.id} is missing armor config.`);
     }
     if (module.capabilities.includes("mining") && !module.mining) {
       throw new Error(`Module ${module.id} is missing mining config.`);

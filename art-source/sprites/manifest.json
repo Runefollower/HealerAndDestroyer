@@ -136,6 +136,54 @@
       "width": 30,
       "height": 30,
       "rotate": 0
+    },
+    {
+      "id": "hull-breaker-spear",
+      "source": "art-source/sprites/hull-breaker-spear.png",
+      "output": "apps/client/public/assets/ships/player/hulls/breaker-spear.png",
+      "width": 90,
+      "height": 58,
+      "rotate": 90
+    },
+    {
+      "id": "hull-breaker-fang",
+      "source": "art-source/sprites/hull-breaker-fang.png",
+      "output": "apps/client/public/assets/ships/player/hulls/breaker-fang.png",
+      "width": 90,
+      "height": 58,
+      "rotate": 90
+    },
+    {
+      "id": "hull-delver-hauler",
+      "source": "art-source/sprites/hull-delver-hauler.png",
+      "output": "apps/client/public/assets/ships/player/hulls/delver-hauler.png",
+      "width": 86,
+      "height": 66,
+      "rotate": 90
+    },
+    {
+      "id": "hull-delver-bore",
+      "source": "art-source/sprites/hull-delver-bore.png",
+      "output": "apps/client/public/assets/ships/player/hulls/delver-bore.png",
+      "width": 84,
+      "height": 64,
+      "rotate": 90
+    },
+    {
+      "id": "engine-heavy-drive",
+      "source": "art-source/sprites/engine-heavy-drive.png",
+      "output": "apps/client/public/assets/ships/player/engines/heavy-drive.png",
+      "width": 38,
+      "height": 30,
+      "rotate": 90
+    },
+    {
+      "id": "weapon-rail-lance",
+      "source": "art-source/sprites/weapon-rail-lance.png",
+      "output": "apps/client/public/assets/ships/player/weapons/rail-lance.png",
+      "width": 46,
+      "height": 14,
+      "rotate": 90
     }
   ]
 }

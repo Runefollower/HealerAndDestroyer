@@ -12,6 +12,9 @@ import { preloadPlayerShipTextures } from "./playerShipAssets.js";
 import { preloadTerrainTextures } from "./terrainAssets.js";
 import { preloadWorldEntityTextures } from "./worldEntityAssets.js";
 
+// Weapon selection value meaning "fire every installed weapon".
+const allWeaponsSelection = "all";
+
 interface ClientDiagnostics {
   // lastFrameTime stores the previous ticker timestamp for frame delta diagnostics.
   lastFrameTime: number | null;
@@ -301,13 +304,16 @@ export async function bootstrapClient(): Promise<void> {
 
       // Held actions repeat on wall-clock cadences (the server enforces cooldowns). Fire requests ride along with
       // each 30 Hz input step so shots leave at an even spacing at any frame rate.
-      const weaponModule = getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon);
-      if (input.firePrimary && weaponModule && moveInputs.length > 0) {
-        network.send({
-          type: "fireWeapon",
-          weaponHardpointId: weaponModule.hardpointId,
-          tick
-        });
+      // Space fires the whole weapon group (every installed weapon by default, or the one picked with 1).
+      // Each weapon keeps its own server-side cooldown and draws its own energy.
+      if (input.firePrimary && moveInputs.length > 0) {
+        for (const weaponModule of getSelectedWeaponModules(snapshot.selfModules, store.selectedModuleHardpoints.weapon)) {
+          network.send({
+            type: "fireWeapon",
+            weaponHardpointId: weaponModule.hardpointId,
+            tick
+          });
+        }
       }
 
       const miningModule = getSelectedModuleByCapability(snapshot.selfModules, "mining", store.selectedModuleHardpoints.mining);
@@ -601,7 +607,7 @@ function renderHudForStore(hud: HTMLElement, store: ClientStore): void {
 // Builds user-facing labels for the selected module in each capability group.
 function describeSelectedModules(snapshot: SnapshotMessage, store: ClientStore): HudSelections {
   return {
-    weapon: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "weapon", store.selectedModuleHardpoints.weapon)),
+    weapon: formatSelectedWeapons(getSelectedWeaponModules(snapshot.selfModules, store.selectedModuleHardpoints.weapon)),
     mining: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "mining", store.selectedModuleHardpoints.mining)),
     support: formatSelectedModule(getSelectedModuleByCapability(snapshot.selfModules, "support", store.selectedModuleHardpoints.support))
   };
@@ -615,6 +621,23 @@ function formatSelectedModule(module: InstalledModule | undefined): string {
 
   const definition = getModuleDefinition(module.moduleId);
   return `${definition.name} (${module.hardpointId})`;
+}
+
+// Formats the weapon fire group for HUD display.
+function formatSelectedWeapons(modules: InstalledModule[]): string {
+  if (modules.length > 1) {
+    return `All weapons (${modules.length})`;
+  }
+  return formatSelectedModule(modules[0]);
+}
+
+// Resolves the weapons that Space fires: all of them for the "all" group, otherwise the one selected weapon.
+function getSelectedWeaponModules(modules: InstalledModule[], selectedHardpointId: string | null): InstalledModule[] {
+  if (selectedHardpointId === allWeaponsSelection) {
+    return modules.filter((installedModule) => getModuleDefinition(installedModule.moduleId).capabilities.includes("weapon"));
+  }
+  const selected = getSelectedModuleByCapability(modules, "weapon", selectedHardpointId);
+  return selected ? [selected] : [];
 }
 
 // Resolves the selected installed module for a capability, falling back to the first matching module.
@@ -641,8 +664,13 @@ function reconcileSelectedModules(store: ClientStore, modules: InstalledModule[]
       store.selectedModuleHardpoints[capability] = null;
       continue;
     }
+    if (capability === "weapon" && (!selectedHardpointId || selectedHardpointId === allWeaponsSelection)) {
+      // Weapons default to firing as one group.
+      store.selectedModuleHardpoints.weapon = allWeaponsSelection;
+      continue;
+    }
     if (!selectedHardpointId || !matchingModules.some((installedModule) => installedModule.hardpointId === selectedHardpointId)) {
-      store.selectedModuleHardpoints[capability] = matchingModules[0].hardpointId;
+      store.selectedModuleHardpoints[capability] = capability === "weapon" ? allWeaponsSelection : matchingModules[0].hardpointId;
     }
   }
 }
@@ -659,8 +687,8 @@ function cycleSelectedModule(store: ClientStore, capability: ModuleSelectionCapa
     return;
   }
 
-  const currentHardpointId = store.selectedModuleHardpoints[capability];
-  const currentIndex = matchingModules.findIndex((installedModule) => installedModule.hardpointId === currentHardpointId);
-  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % matchingModules.length : 0;
-  store.selectedModuleHardpoints[capability] = matchingModules[nextIndex].hardpointId;
+  // Weapons cycle through the all-weapons group first, then each weapon on its own.
+  const options = [...(capability === "weapon" ? [allWeaponsSelection] : []), ...matchingModules.map((installedModule) => installedModule.hardpointId)];
+  const currentIndex = options.indexOf(store.selectedModuleHardpoints[capability] ?? "");
+  store.selectedModuleHardpoints[capability] = options[currentIndex >= 0 ? (currentIndex + 1) % options.length : 0];
 }
