@@ -3,6 +3,7 @@ import type { InstalledModule } from "./content.js";
 import type { ResourceMap } from "./resources.js";
 import type { MapConnection } from "./persistence.js";
 import type { Vec2 } from "./math.js";
+import type { EffectEvent } from "./effects.js";
 
 export type CellType = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -31,6 +32,8 @@ export interface PlayerShipState {
   modules: InstalledModule[];
   inventory: ResourceMap;
   moduleCooldowns: Record<string, number>;
+  // invulnerableUntil is a server timestamp; a freshly respawned ship ignores damage until then.
+  invulnerableUntil?: number;
 }
 
 export interface EnemyState {
@@ -42,13 +45,23 @@ export interface EnemyState {
   rotation: number;
   health: number;
   aiState: "idle" | "chasing";
+  // sourceFoundryId links units a foundry produced, which count toward its spawn cap.
   sourceFoundryId?: EntityId | null;
+  // defendsFoundryId/defenseSlotIndex mark a fortification defense placed around a foundry. Defenses do
+  // not count toward the spawn cap; the foundry rebuilds them slowly instead.
+  defendsFoundryId?: EntityId | null;
+  defenseSlotIndex?: number;
+  // nextAttackAt is the server time this enemy may attack again (contact or ranged).
+  nextAttackAt?: number;
 }
 
 export interface ProjectileState {
   id: EntityId;
   mapId: MapId;
-  ownerPlayerId: PlayerId;
+  // faction decides what a projectile can hit: player bolts hit enemies and foundries, enemy bolts hit players.
+  faction: "player" | "enemy";
+  ownerPlayerId?: PlayerId | null;
+  ownerEnemyId?: EntityId | null;
   position: Vec2;
   velocity: Vec2;
   damage: number;
@@ -73,6 +86,15 @@ export interface FoundryState extends StructureState {
   activeEnemyCount: number;
   active: boolean;
   destroyedAt?: number | null;
+  // enemyMix is the cycle of enemy type ids this foundry produces.
+  enemyMix?: string[];
+  // defenseSlots are fortification positions around the foundry, each holding one defense turret.
+  defenseSlots?: Vec2[];
+  // defenseRebuildMs is how often an active foundry may rebuild one destroyed defense.
+  defenseRebuildMs?: number;
+  lastDefenseRebuildAt?: number;
+  // reward is the salvage dropped when the foundry is destroyed (already scaled for depth).
+  reward?: ResourceMap;
 }
 
 export interface LootDropState {
@@ -82,6 +104,11 @@ export interface LootDropState {
   resources: ResourceMap;
   ownerPlayerId?: PlayerId | null;
   protectedUntil?: number | null;
+  // Drift state (§12). Drops are launched with a small random velocity and spin the first tick they exist,
+  // so creation sites only need a position; undefined velocity means "not launched yet".
+  velocity?: Vec2;
+  rotation?: number;
+  angularVelocity?: number;
 }
 
 export interface ActiveMapState {
@@ -97,6 +124,8 @@ export interface ActiveMapState {
   foundries: Record<string, FoundryState>;
   drops: Record<string, LootDropState>;
   connections: MapConnection[];
+  // effects holds recent cosmetic events (dust, explosions) for snapshots. Runtime-only, never persisted.
+  effects?: EffectEvent[];
 }
 
 export interface WorldRuntimeState {

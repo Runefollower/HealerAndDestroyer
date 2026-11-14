@@ -4,6 +4,7 @@ import type { InstalledModule } from "./content.js";
 import type { PlayerSave, StoredShip } from "./persistence.js";
 import type { ActiveMapState, PlayerShipState } from "./world.js";
 import type { ResourceMap } from "./resources.js";
+import type { EffectEvent } from "./effects.js";
 
 export const vec2Schema = z.object({
   x: z.number(),
@@ -121,6 +122,8 @@ export interface ProjectileSnapshot {
   position: { x: number; y: number };
   // velocity is world-space pixels per second; projectiles fly straight, so the client can extrapolate exactly.
   velocity: { x: number; y: number };
+  // hostile marks enemy fire so the client can draw it differently from player bolts.
+  hostile?: boolean;
 }
 
 export interface StructureSnapshot {
@@ -145,6 +148,10 @@ export interface DropSnapshot {
   id: EntityId;
   position: { x: number; y: number };
   resources: ResourceMap;
+  // Drift state so the client can extrapolate between snapshots (see DROP_DRIFT / driftOffset).
+  velocity: { x: number; y: number };
+  rotation: number;
+  angularVelocity: number;
 }
 
 // ExitSnapshot is one map connection endpoint on the player's current map.
@@ -184,6 +191,8 @@ export interface SnapshotMessage {
   structures: StructureSnapshot[];
   foundries: FoundrySnapshot[];
   drops: DropSnapshot[];
+  // effects are recent visible cosmetic events; an event repeats in consecutive snapshots, so dedupe by id.
+  effects: EffectEvent[];
   chunks: ChunkSnapshot[];
   inventory: ResourceMap;
   selfModules: InstalledModule[];
@@ -248,6 +257,7 @@ export interface SnapshotMessageOverrides {
   structures?: StructureSnapshot[];
   foundries?: FoundrySnapshot[];
   drops?: DropSnapshot[];
+  effects?: EffectEvent[];
   chunks?: ChunkSnapshot[];
   exits?: ExitSnapshot[];
   nearbyExitId?: string | null;
@@ -298,7 +308,8 @@ export function createSnapshotMessage(
       Object.values(map.projectiles).map((projectile) => ({
         id: projectile.id,
         position: projectile.position,
-        velocity: projectile.velocity
+        velocity: projectile.velocity,
+        hostile: projectile.faction === "enemy"
       })),
     structures:
       overrides.structures ??
@@ -322,11 +333,8 @@ export function createSnapshotMessage(
       })),
     drops:
       overrides.drops ??
-      Object.values(map.drops).map((drop) => ({
-        id: drop.id,
-        position: drop.position,
-        resources: drop.resources
-      })),
+      Object.values(map.drops).map(toDropSnapshot),
+    effects: overrides.effects ?? [...(map.effects ?? [])],
     chunks:
       overrides.chunks ??
       Object.entries(map.chunks).map(([chunkKey, chunk]) => ({
@@ -344,5 +352,17 @@ export function createSnapshotMessage(
     deeperPathUnlocked,
     exits: overrides.exits ?? [],
     nearbyExitId: overrides.nearbyExitId ?? null
+  };
+}
+
+// Converts live resource drop state into the network snapshot shape, defaulting unlaunched drift to rest.
+export function toDropSnapshot(drop: ActiveMapState["drops"][string]): DropSnapshot {
+  return {
+    id: drop.id,
+    position: drop.position,
+    resources: drop.resources,
+    velocity: drop.velocity ?? { x: 0, y: 0 },
+    rotation: drop.rotation ?? 0,
+    angularVelocity: drop.angularVelocity ?? 0
   };
 }

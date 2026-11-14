@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { isPositionBlocked } from "./collision.js";
+import { defenseCountForDepth, scaleFoundryReward } from "./foundries.js";
 import { createWorldGraph } from "./createWorld.js";
 import { chooseArchetypeForDepth, discoveredArchetypePools, getMapArchetype, prototypeMaps } from "./mapArchetypes.js";
 import { generateMapLayout } from "./mapGeneration.js";
@@ -86,6 +88,13 @@ describe("world graph discovery", () => {
         // Foundries grow tougher with depth.
         expect(foundry.maxHealth).toBeGreaterThan(350 * (content.foundry?.healthMultiplier ?? 1));
         expect(foundry.mapId).toBe(summary.id);
+        // Fortification pocket: every planned turret slot fits, and rewards grow with depth.
+        expect(foundry.defenseSlots).toHaveLength(defenseCountForDepth(content.foundry!, depth));
+        for (const slot of foundry.defenseSlots ?? []) {
+          expect(isPositionBlocked(map, slot, 14)).toBe(false);
+        }
+        expect(foundry.reward).toEqual(scaleFoundryReward(content.foundry!.reward, depth));
+        expect(foundry.reward?.ferrite ?? 0).toBeGreaterThan(content.foundry!.reward.ferrite ?? 0);
       }
       sourceMapId = summary.id;
     }

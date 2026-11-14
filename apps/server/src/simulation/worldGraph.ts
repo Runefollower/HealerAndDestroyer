@@ -1,7 +1,5 @@
-import { structureDefinitions } from "@healer/content";
 import {
   asConnectionId,
-  asEntityId,
   asMapId,
   distance,
   type ActiveMapState,
@@ -16,15 +14,13 @@ import {
 import { chooseArchetypeForDepth, getMapArchetype } from "./mapArchetypes.js";
 import { generateMapLayout, tileToWorld, type GeneratedMapLayout } from "./mapGeneration.js";
 import { MapGenerationError } from "./mapValidation.js";
+import { createFoundry, defenseCountForDepth, planFoundryDefenses } from "./foundries.js";
 
 // A ship within this many pixels of an exit's tile center can travel through it (about two tiles).
 export const EXIT_TRAVEL_RADIUS = 72;
 
 // Reserved seeds that fail validation are retried with a numbered suffix this many times.
 const maxGenerationAttempts = 8;
-
-// Each extra level of depth adds this fraction of base health to a discovered map's foundry.
-const foundryHealthPerDepth = 0.25;
 
 // Returns the id of the deeper exit reserved on a map. Each map currently has one deeper exit.
 export function deeperExitId(sourceMapId: string): ReturnType<typeof asConnectionId> {
@@ -121,32 +117,21 @@ export function generateLayoutWithRetries(seed: string, archetypeId: string): { 
 // Persisted terrain/foundry deltas are replayed over this baseline on load, like the prototype maps.
 export function buildDiscoveredMap(summary: PersistentMapSummary, layout: GeneratedMapLayout, now = Date.now()): ActiveMapState {
   const content = getMapArchetype(summary.biomeId ?? layout.archetypeId).content;
+  const depth = summary.depth ?? 1;
   const foundries: Record<string, FoundryState> = {};
   if (content.foundry) {
-    const definition = structureDefinitions.find((entry) => entry.id === "enemy-foundry");
-    const baseHealth = definition?.maxHealth ?? 350;
-    const depthScale = 1 + foundryHealthPerDepth * Math.max(0, (summary.depth ?? 1) - 1);
-    const maxHealth = Math.round(baseHealth * content.foundry.healthMultiplier * depthScale);
-    const foundryId = asEntityId(`foundry-${summary.id}-1`);
-    foundries[foundryId] = {
-      id: foundryId,
+    const foundry = createFoundry({
+      id: `foundry-${summary.id}-1`,
       mapId: summary.id,
-      ownerType: "enemy",
-      structureTypeId: definition?.id ?? "enemy-foundry",
       position: layout.foundryPosition,
-      health: maxHealth,
-      maxHealth,
-      buildState: "active",
-      spawnCooldownMs: content.foundry.spawnCooldownMs,
-      spawnCap: content.foundry.spawnCap,
-      lastSpawnAt: now,
-      activeEnemyCount: 0,
-      active: true,
-      destroyedAt: null
-    };
+      config: content.foundry,
+      depth,
+      now
+    });
+    foundries[foundry.id] = foundry;
   }
 
-  return {
+  const map: ActiveMapState = {
     id: summary.id,
     seed: summary.seed,
     width: layout.widthTiles,
@@ -160,8 +145,14 @@ export function buildDiscoveredMap(summary: PersistentMapSummary, layout: Genera
     drops: {},
     connections: []
   };
-}
 
+  // Fortification pocket: plan turret slots on the generated terrain, clear of spawn and exit anchors.
+  const keepOut = [layout.spawnPoint, layout.builderPosition, tileToWorld(layout.sourceAnchor), tileToWorld(layout.destinationAnchor)];
+  for (const foundry of Object.values(foundries)) {
+    foundry.defenseSlots = planFoundryDefenses(map, foundry, defenseCountForDepth(content.foundry!, depth), keepOut);
+  }
+  return map;
+}
 // Picks an unused map id for a newly discovered map at the given depth.
 function nextDiscoveredMapId(world: PersistentWorld, depth: number): MapId {
   const base = `map-depth-${depth}`;

@@ -1,4 +1,5 @@
 import type { ActiveMapState, PersistedMapState, PersistentMapSummary } from "@healer/shared";
+import { mergeFoundry } from "./foundries.js";
 
 // Replays persisted chunk/structure/foundry state into a freshly created runtime map template.
 export function applyPersistedMapState(runtimeMap: ActiveMapState, persisted: PersistedMapState): void {
@@ -27,14 +28,15 @@ export function applyPersistedMapState(runtimeMap: ActiveMapState, persisted: Pe
   );
 
   // Foundries carry runtime spawn metadata, so restore their active/destroyed state with enemy ownership.
+  // Fields an older save lacks (enemy mix, defense slots, reward) are kept from the generated template.
   runtimeMap.foundries = Object.fromEntries(
     persisted.foundries.map((foundry) => [
       foundry.id,
-      {
+      mergeFoundry(runtimeMap.foundries[foundry.id], {
         ...structuredClone(foundry),
         mapId: runtimeMap.id,
         ownerType: "enemy"
-      }
+      })
     ])
   );
 }
@@ -70,7 +72,12 @@ export function serializeMapState(runtimeMap: ActiveMapState, summary: Persisten
       lastSpawnAt: foundry.lastSpawnAt,
       activeEnemyCount: foundry.activeEnemyCount,
       active: foundry.active,
-      destroyedAt: foundry.destroyedAt ?? null
+      destroyedAt: foundry.destroyedAt ?? null,
+      enemyMix: foundry.enemyMix ? [...foundry.enemyMix] : undefined,
+      defenseSlots: foundry.defenseSlots ? structuredClone(foundry.defenseSlots) : undefined,
+      defenseRebuildMs: foundry.defenseRebuildMs,
+      lastDefenseRebuildAt: foundry.lastDefenseRebuildAt,
+      reward: foundry.reward ? { ...foundry.reward } : undefined
     }))
   };
 }

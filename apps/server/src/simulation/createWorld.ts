@@ -13,8 +13,9 @@ import {
   type PlayerSave,
   type WorldRuntimeState
 } from "@healer/shared";
-import { prototypeMaps, type PrototypeMapDefinition } from "./mapArchetypes.js";
-import { generateMapLayout, type GeneratedMapLayout } from "./mapGeneration.js";
+import { getMapArchetype, prototypeMaps, type PrototypeMapDefinition } from "./mapArchetypes.js";
+import { generateMapLayout, tileToWorld, type GeneratedMapLayout } from "./mapGeneration.js";
+import { createFoundry, defenseCountForDepth, planFoundryDefenses } from "./foundries.js";
 import { createUndiscoveredExit } from "./worldGraph.js";
 
 export { CHUNK_SIZE } from "./mapGeneration.js";
@@ -48,26 +49,22 @@ function createDeeperExit(): MapConnection {
   return createUndiscoveredExit(worldSeed, prototypeMaps.deeper.mapId, 1, deeperLayout.sourceAnchor);
 }
 
-// Creates the starter foundry that acts as the root-map objective gate.
-function createFoundryState(position: { x: number; y: number }): FoundryState {
-  // Content definitions provide health tuning while this file owns prototype placement/spawn state.
-  const foundry = structureDefinitions.find((entry) => entry.id === "enemy-foundry");
-  return {
-    id: asEntityId("foundry-root-1"),
+// Creates the starter foundry that acts as the root-map objective gate, tuned by the starter archetype.
+function createRootFoundry(position: { x: number; y: number }): FoundryState {
+  const config = getMapArchetype(prototypeMaps.root.archetypeId).content.foundry;
+  if (!config) {
+    throw new Error("The root map archetype must define a foundry.");
+  }
+  // The hand-placed starter enemy counts toward the cap from the start.
+  return createFoundry({
+    id: "foundry-root-1",
     mapId: asMapId(prototypeMaps.root.mapId),
-    ownerType: "enemy",
-    structureTypeId: foundry?.id ?? "enemy-foundry",
     position,
-    health: foundry?.maxHealth ?? 350,
-    maxHealth: foundry?.maxHealth ?? 350,
-    buildState: "active",
-    spawnCooldownMs: 3000,
-    spawnCap: 3,
-    lastSpawnAt: Date.now(),
-    activeEnemyCount: 1,
-    active: true,
-    destroyedAt: null
-  };
+    config,
+    depth: 0,
+    now: Date.now(),
+    activeEnemyCount: 1
+  });
 }
 
 // Creates the persistent world graph metadata used to bootstrap or seed storage.
@@ -126,10 +123,10 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
   const scoutEnemy = enemyDefinitions[0];
   const rootLayout = generatePrototypeLayout(prototypeMaps.root);
   const deeperLayout = generatePrototypeLayout(prototypeMaps.deeper);
-  const rootFoundry = createFoundryState(rootLayout.foundryPosition);
+  const rootFoundry = createRootFoundry(rootLayout.foundryPosition);
 
   // Root map contains the generated starter cave, builder site, first enemy, and objective foundry.
-  return {
+  const maps: Record<string, ActiveMapState> = {
     [rootMapId]: {
       id: rootMapId,
       seed: prototypeMaps.root.seed,
@@ -185,6 +182,25 @@ export function createActiveMaps(): Record<string, ActiveMapState> {
       connections: [connection, createDeeperExit()]
     }
   };
+
+  // Fortification pocket around the root foundry, clear of the spawn, builder, and both exits. Turrets are
+  // placed when GameWorld initializes (seedFoundryDefenses), after any persisted foundry state is applied.
+  const rootFoundryConfig = getMapArchetype(prototypeMaps.root.archetypeId).content.foundry!;
+  rootFoundry.defenseSlots = planFoundryDefenses(maps[rootMapId], rootFoundry, defenseCountForDepth(rootFoundryConfig, 0), [
+    rootLayout.spawnPoint,
+    rootLayout.builderPosition,
+    rootLayout.enemyPosition,
+    tileToWorld(rootLayout.sourceAnchor),
+    tileToWorld(rootLayout.destinationAnchor)
+  ]);
+  return maps;
+}
+
+// Returns where a destroyed ship respawns: the player's original starting location on the root map
+// (GDD §16.2 default spawn point).
+export function getDefaultRespawnPoint(): { mapId: ReturnType<typeof asMapId>; position: { x: number; y: number } } {
+  const rootLayout = generatePrototypeLayout(prototypeMaps.root);
+  return { mapId: asMapId(prototypeMaps.root.mapId), position: { ...rootLayout.spawnPoint } };
 }
 
 // Creates the first-time player save with starter resources, ship, modules, and spawn point.

@@ -1,3 +1,4 @@
+import { enemyDefinitions } from "@healer/content";
 import type { ActiveMapState, EnemyState, PlayerShipState, Vec2 } from "@healer/shared";
 import { clamp, distance, isEmptyTerrainCell } from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
@@ -13,11 +14,6 @@ const shipCollisionRadii: Record<string, number> = {
   "warden-healer": 16,
   "breaker-destroyer": 17,
   "delver-miner": 17
-};
-// Enemy type ids map to gameplay collision radii in world-space pixels.
-const enemyCollisionRadii: Record<string, number> = {
-  "drone-scout": 12,
-  "burrow-sentry": 14
 };
 // Structure type ids map to gameplay collision radii in world-space pixels.
 const structureCollisionRadii: Record<string, number> = {
@@ -45,7 +41,7 @@ export function getPlayerShipCollisionRadius(player: Pick<PlayerShipState, "hull
 
 // Returns the collision radius for an enemy type, falling back to a safe prototype default.
 export function getEnemyCollisionRadius(enemy: Pick<EnemyState, "enemyTypeId">): number {
-  return enemyCollisionRadii[enemy.enemyTypeId] ?? defaultEnemyRadius;
+  return enemyDefinitions.find((entry) => entry.id === enemy.enemyTypeId)?.collisionRadius ?? defaultEnemyRadius;
 }
 
 // Returns the collision radius for structures/foundries by content id.

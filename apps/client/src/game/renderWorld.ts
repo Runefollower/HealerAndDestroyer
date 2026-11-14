@@ -11,6 +11,7 @@ import { Container, Graphics, Sprite, Text, type Container as PixiContainer, typ
 import { createPlayerShipDisplay } from "./playerShipAssets.js";
 import { getTerrainTexture } from "./terrainAssets.js";
 import { createEnemyDisplay, createFoundryDisplay, createSalvageDisplay, createStructureDisplay } from "./worldEntityAssets.js";
+import { WorldEffects, type ActiveEffect } from "./worldEffects.js";
 
 // Viewport padding keeps nearby off-screen objects ready as the camera moves between snapshots.
 const viewportPadding = 160;
@@ -19,17 +20,13 @@ const terrainTileSize = 32;
 // Terrain sprites are intentionally larger than a tile to overlap and soften grid edges.
 const terrainSpriteSize = 46;
 const terrainSpriteInset = (terrainSpriteSize - terrainTileSize) / 2;
-// Terrain bursts are short-lived effects emitted when a previously visible cell disappears.
-const terrainBurstLifetimeMs = 420;
-const maxTerrainBursts = 24;
 // Engine exhaust particles trail from thrusting ships and are retained between redraws.
 const exhaustParticleLifetimeMs = 520;
 const exhaustSpawnIntervalMs = 70;
 const maxExhaustParticles = 72;
 const minimumExhaustForwardSpeed = 10;
-// previousTerrainSnapshot tracks visible terrain cells from the prior render for destruction effects.
-let previousTerrainSnapshot: { mapId: string; cells: Map<string, TerrainCellRecord> } | null = null;
-const terrainBursts: TerrainBurst[] = [];
+// worldEffects plays the server's dust/explosion events (§12) once each, with a cap on active effects.
+const worldEffects = new WorldEffects();
 const exhaustParticles: ExhaustParticle[] = [];
 const lastExhaustSpawnByPlayer = new Map<string, number>();
 const renderLayerStates = new WeakMap<PixiContainer, RenderLayerState>();
@@ -51,6 +48,8 @@ export interface WorldViewport {
 export interface WorldRenderEffects {
   // selfThrustForward is local-only input, so only the current player's ship can use it exactly.
   selfThrustForward?: boolean;
+  // secondsSinceTick converts a server tick into seconds ago, so late effect events start part-way through.
+  secondsSinceTick?: (tick: number) => number;
 }
 
 export interface WorldRenderStats {
@@ -64,7 +63,7 @@ export interface WorldRenderStats {
   fogObjects: number;
   // short-lived effect counts help catch particle/burst runaway.
   exhaustParticles: number;
-  terrainBursts: number;
+  effects: number;
 }
 
 interface TerrainCellRecord {
@@ -91,18 +90,6 @@ interface TerrainSpriteRecord {
   sprite: Sprite;
 }
 
-interface TerrainBurst {
-  // x/y are the world-space center where the burst effect should play.
-  x: number;
-  y: number;
-  // createdAt is a performance timestamp used to fade the effect.
-  createdAt: number;
-  // seed gives each burst deterministic shard directions.
-  seed: number;
-  // tint is derived from the destroyed terrain material.
-  tint: number;
-}
-
 interface ExhaustParticle {
   // x/y are the current world-space particle origin.
   x: number;
@@ -120,10 +107,14 @@ interface ExhaustParticle {
 interface RenderLayerState {
   // terrainLayer holds static terrain sprites rebuilt only when authoritative terrain changes.
   terrainLayer: Container;
+  // groundEffects is one retained Graphics, cleared and redrawn each frame, for dust and rock bursts.
+  groundEffects: Graphics;
   // dynamicLayer is rebuilt every render frame for moving entities and short-lived effects.
   dynamicLayer: Container;
   // playerLayer keeps player ship displays retained between frames to avoid allocation churn.
   playerLayer: Container;
+  // airEffects is one retained Graphics above ships for explosions, so a dying ship's blast covers it.
+  airEffects: Graphics;
   // fogLayer sits above dynamic objects and is rebuilt with terrain visibility.
   fogLayer: Container;
   // terrainKey records the authoritative snapshot/viewport state used for the cached terrain.
@@ -219,18 +210,20 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
   const paddedViewport = padViewport(viewport, viewportPadding);
   const layers = getRenderLayerState(worldLayer);
   const terrainRebuilt = refreshTerrainLayer(layers, snapshot, paddedViewport, now);
-  pruneTerrainBursts(now);
+  worldEffects.ingest(snapshot.mapId, snapshot.effects ?? [], now, effects.secondsSinceTick);
+  worldEffects.prune(now);
   pruneExhaustParticles(now);
   pruneExhaustSpawnTimers(snapshot);
   clearLayer(layers.dynamicLayer);
 
-  // Add terrain destruction bursts after terrain so the effects sit above the cells.
-  for (const burst of terrainBursts) {
-    if (!isPointInViewport(burst.x, burst.y, paddedViewport)) {
-      continue;
+  // Effects redraw into two retained Graphics (no per-frame allocation): dust and rock bursts just above
+  // the terrain, explosions above ships and enemies.
+  layers.groundEffects.clear();
+  layers.airEffects.clear();
+  for (const effect of worldEffects.active) {
+    if (isPointInViewport(effect.x, effect.y, padViewport(paddedViewport, effect.radius * 2))) {
+      drawWorldEffect(effect.kind === "explosion" ? layers.airEffects : layers.groundEffects, effect, now);
     }
-    const burstDisplay = createTerrainBurstEffect(burst, now);
-    layers.dynamicLayer.addChild(burstDisplay);
   }
 
   // Structures and foundries render before mobile entities so ships/enemies remain readable.
@@ -274,6 +267,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     }
     const sprite = createSalvageDisplay(drop.resources);
     sprite.position.set(drop.position.x, drop.position.y);
+    sprite.rotation = drop.rotation ?? 0;
     layers.dynamicLayer.addChild(sprite);
   }
 
@@ -317,7 +311,7 @@ export function renderWorld(worldLayer: PixiContainer, snapshot: SnapshotMessage
     dynamicObjects: layers.dynamicLayer.children.length + layers.playerLayer.children.length,
     fogObjects: layers.fogLayer.children.length,
     exhaustParticles: exhaustParticles.length,
-    terrainBursts: terrainBursts.length
+    effects: worldEffects.active.length
   };
 }
 
@@ -333,10 +327,14 @@ function getRenderLayerState(worldLayer: PixiContainer): RenderLayerState {
   const dynamicLayer = new Container();
   const playerLayer = new Container();
   const fogLayer = new Container();
-  worldLayer.addChild(terrainLayer, dynamicLayer, playerLayer, fogLayer);
+  const groundEffects = new Graphics();
+  const airEffects = new Graphics();
+  worldLayer.addChild(terrainLayer, groundEffects, dynamicLayer, playerLayer, airEffects, fogLayer);
 
   const created = {
     terrainLayer,
+    groundEffects,
+    airEffects,
     dynamicLayer,
     playerLayer,
     fogLayer,
@@ -357,7 +355,6 @@ function refreshTerrainLayer(layers: RenderLayerState, snapshot: SnapshotMessage
   }
 
   const terrainCells = buildTerrainCellMap(snapshot, viewport);
-  spawnTerrainBursts(snapshot.mapId, terrainCells, now);
   syncTerrainLayer(layers, snapshot.mapId, terrainCells);
   clearLayer(layers.fogLayer);
 
@@ -366,10 +363,6 @@ function refreshTerrainLayer(layers: RenderLayerState, snapshot: SnapshotMessage
     layers.fogLayer.addChild(fogOverlay);
   }
 
-  previousTerrainSnapshot = {
-    mapId: snapshot.mapId,
-    cells: terrainCells
-  };
   layers.terrainKey = terrainKey;
   return true;
 }
@@ -591,34 +584,6 @@ function buildTerrainCellMap(snapshot: SnapshotMessage, viewport: WorldViewport)
   return cells;
 }
 
-// Compares the last terrain cell map to the next one and spawns bursts where cells disappeared.
-function spawnTerrainBursts(mapId: string, nextCells: Map<string, TerrainCellRecord>, now: number): void {
-  if (!previousTerrainSnapshot || previousTerrainSnapshot.mapId !== mapId) {
-    return;
-  }
-
-  for (const [cellKey, previousCell] of previousTerrainSnapshot.cells.entries()) {
-    if (nextCells.has(cellKey)) {
-      continue;
-    }
-
-    terrainBursts.push({
-      x: previousCell.x,
-      y: previousCell.y,
-      createdAt: now,
-      seed: hashString(`${mapId}:${cellKey}:${now}`),
-      tint: terrainBurstTint(previousCell.value)
-    });
-  }
-}
-
-// Removes expired terrain bursts and caps retained effects for performance/readability.
-function pruneTerrainBursts(now: number): void {
-  const nextBursts = terrainBursts.filter((burst) => now - burst.createdAt <= terrainBurstLifetimeMs);
-  terrainBursts.length = 0;
-  terrainBursts.push(...nextBursts.slice(-maxTerrainBursts));
-}
-
 // Removes old exhaust particles and advances surviving particles between authoritative snapshots.
 function pruneExhaustParticles(now: number): void {
   const nextParticles = exhaustParticles.filter((particle) => {
@@ -645,42 +610,166 @@ function pruneExhaustSpawnTimers(snapshot: SnapshotMessage): void {
   }
 }
 
-// Chooses burst tint by terrain material value.
-function terrainBurstTint(cellValue: number): number {
-  return getTerrainMaterialDefinition(cellValue).burstTint;
+// Draws one effect frame into a shared Graphics. Each kind is a handful of circles and shards whose
+// directions come from the effect's seed, so every frame of one effect is consistent.
+function drawWorldEffect(graphics: Graphics, effect: ActiveEffect, now: number): void {
+  const age = Math.min(1, Math.max(0, (now - effect.startedAt) / effect.lifetimeMs));
+  switch (effect.kind) {
+    case "dust":
+      drawDustCloud(graphics, effect, age);
+      return;
+    case "rockBurst":
+      drawRockBurst(graphics, effect, age);
+      return;
+    case "explosion":
+      drawExplosion(graphics, effect, age);
+      return;
+  }
 }
 
-// Creates the Pixi container for one terrain destruction burst.
-function createTerrainBurstEffect(burst: TerrainBurst, now: number): Container {
-  // age/fade normalize effect animation over its lifetime.
-  const age = Math.min(1, (now - burst.createdAt) / terrainBurstLifetimeMs);
-  const fade = 1 - age;
-  const container = new Container();
-  container.position.set(burst.x, burst.y);
-
-  const shock = new Graphics();
-  shock.circle(0, 0, 8 + age * 16).stroke({ color: burst.tint, width: Math.max(1, 3 * fade), alpha: 0.45 * fade });
-  container.addChild(shock);
-
-  const dust = new Graphics();
-  dust.circle(0, 0, 4 + age * 10).fill(burst.tint);
-  dust.alpha = 0.12 * fade;
-  container.addChild(dust);
-
-  // Shards fan outward from the destroyed terrain cell using deterministic pseudo-random angles.
+// Mining finished: soft puffs billow out from the cell and settle, with a little grit thrown sideways.
+function drawDustCloud(graphics: Graphics, effect: ActiveEffect, age: number): void {
+  const ease = 1 - (1 - age) ** 3;
+  const fade = (1 - age) ** 1.4;
+  const reach = effect.radius * 0.9;
+  const puffColor = mixColor(effect.tint, 0x8a7c6c, 0.45);
+  for (let index = 0; index < 8; index += 1) {
+    const seed = effect.seed + index * 131;
+    const angle = effectRandom(seed) * Math.PI * 2;
+    const travel = reach * (0.35 + 0.65 * effectRandom(seed + 7)) * ease;
+    const size = effect.radius * (0.28 + 0.22 * effectRandom(seed + 13)) * (0.6 + 0.8 * ease);
+    graphics
+      .circle(effect.x + Math.cos(angle) * travel, effect.y + Math.sin(angle) * travel - age * 4, size)
+      .fill({ color: puffColor, alpha: 0.32 * fade });
+  }
+  graphics.circle(effect.x, effect.y, effect.radius * (0.4 + 0.5 * ease)).fill({ color: puffColor, alpha: 0.22 * fade });
   for (let index = 0; index < 6; index += 1) {
-    const shardSeed = burst.seed + index * 83;
-    const angle = ((shardSeed % 360) * Math.PI) / 180;
-    const distance = 4 + age * (10 + (shardSeed % 9));
-    const shard = new Graphics();
-    shard.roundRect(-2.2, -1.1, 4.4, 2.2, 1).fill(burst.tint);
-    shard.alpha = 0.75 * fade;
-    shard.position.set(Math.cos(angle) * distance, Math.sin(angle) * distance * 0.75);
-    shard.rotation = angle + age * 2.2;
-    container.addChild(shard);
+    const seed = effect.seed + index * 977;
+    const angle = effectRandom(seed) * Math.PI * 2;
+    const travel = effect.radius * (0.6 + 0.9 * effectRandom(seed + 3)) * ease;
+    graphics
+      .circle(effect.x + Math.cos(angle) * travel, effect.y + Math.sin(angle) * travel, 1.3)
+      .fill({ color: effect.tint, alpha: 0.8 * (1 - age) });
+  }
+}
+
+// Weapon fire broke a block: a quick shock ring and rock shards flung outward (the old terrain burst).
+function drawRockBurst(graphics: Graphics, effect: ActiveEffect, age: number): void {
+  const fade = 1 - age;
+  graphics
+    .circle(effect.x, effect.y, 8 + age * 16)
+    .stroke({ color: effect.tint, width: Math.max(1, 3 * fade), alpha: 0.45 * fade });
+  graphics.circle(effect.x, effect.y, 4 + age * 10).fill({ color: effect.tint, alpha: 0.12 * fade });
+  for (let index = 0; index < 7; index += 1) {
+    const seed = effect.seed + index * 83;
+    const angle = effectRandom(seed) * Math.PI * 2;
+    const travel = 4 + age * (12 + 10 * effectRandom(seed + 5));
+    drawShard(graphics, effect.x + Math.cos(angle) * travel, effect.y + Math.sin(angle) * travel, angle + age * 5, 2.4, effect.tint, 0.8 * fade);
+  }
+}
+
+// Something blew up: a white flash, an expanding fireball, a shockwave out to the blast radius, embers,
+// and darker smoke that lingers after the fire is gone. The tint colours the shockwave and embers.
+function drawExplosion(graphics: Graphics, effect: ActiveEffect, age: number): void {
+  const radius = effect.radius;
+  const ease = 1 - (1 - age) ** 3;
+
+  // Smoke first so the fire draws over it.
+  for (let index = 0; index < 7; index += 1) {
+    const seed = effect.seed + index * 211;
+    const angle = effectRandom(seed) * Math.PI * 2;
+    const travel = radius * (0.25 + 0.45 * effectRandom(seed + 1)) * ease;
+    const size = radius * (0.22 + 0.18 * effectRandom(seed + 2)) * (0.5 + ease);
+    const smokeAlpha = 0.38 * Math.min(1, age * 4) * (1 - age);
+    graphics
+      .circle(effect.x + Math.cos(angle) * travel, effect.y + Math.sin(angle) * travel, size)
+      .fill({ color: 0x2e2a2a, alpha: smokeAlpha });
   }
 
-  return container;
+  // Fireball: grows fast, burns out by about 60% of the lifetime.
+  const fire = Math.max(0, 1 - age / 0.6);
+  if (fire > 0) {
+    // Each layer is a cluster of offset lobes rather than one circle, so the fireball reads as billowing
+    // flame instead of a bullseye. The effect tint bleeds into the outer flame (cyan for crystals).
+    const fireRadius = radius * (0.25 + 0.4 * ease);
+    const layers: Array<[number, number, number]> = [
+      [mixColor(0xff6a2a, effect.tint, 0.3), 0.62, 0.45],
+      [mixColor(0xffb347, effect.tint, 0.15), 0.42, 0.6],
+      [0xfff1c4, 0.24, 0.8]
+    ];
+    for (const [layerIndex, [color, lobeScale, alpha]] of layers.entries()) {
+      for (let lobe = 0; lobe < 5; lobe += 1) {
+        const seed = effect.seed + layerIndex * 1009 + lobe * 37;
+        const angle = effectRandom(seed) * Math.PI * 2;
+        const offset = fireRadius * (0.15 + 0.3 * effectRandom(seed + 1)) * (1 - layerIndex * 0.35);
+        const lobeRadius = fireRadius * lobeScale * (0.8 + 0.4 * effectRandom(seed + 2));
+        graphics
+          .circle(effect.x + Math.cos(angle) * offset, effect.y + Math.sin(angle) * offset, lobeRadius)
+          .fill({ color, alpha: alpha * fire * (layerIndex === 2 ? fire : 1) });
+      }
+    }
+  }
+
+  // Initial flash.
+  const flash = Math.max(0, 1 - age / 0.15);
+  if (flash > 0) {
+    graphics.circle(effect.x, effect.y, radius * 0.55).fill({ color: 0xffffff, alpha: 0.6 * flash });
+  }
+
+  // Shockwave ring out to the full blast radius.
+  const ringFade = 1 - age;
+  graphics
+    .circle(effect.x, effect.y, radius * (0.3 + 0.75 * ease))
+    .stroke({ color: mixColor(effect.tint, 0xffffff, 0.35), width: Math.max(1, 4 * ringFade), alpha: 0.55 * ringFade });
+
+  // Embers and debris shards.
+  for (let index = 0; index < 12; index += 1) {
+    const seed = effect.seed + index * 59;
+    const angle = effectRandom(seed) * Math.PI * 2;
+    const travel = radius * (0.35 + 0.85 * effectRandom(seed + 3)) * ease;
+    const px = effect.x + Math.cos(angle) * travel;
+    const py = effect.y + Math.sin(angle) * travel;
+    if (index % 3 === 0) {
+      drawShard(graphics, px, py, angle + age * 6, 2.6, 0x5b524a, 0.9 * (1 - age));
+    } else {
+      graphics.circle(px, py, 1.6 * (1 - age) + 0.6).fill({ color: index % 2 ? 0xffd27a : effect.tint, alpha: 0.95 * (1 - age) });
+    }
+  }
+}
+
+// A small rotated rectangle drawn as a polygon so many shards share one Graphics.
+function drawShard(graphics: Graphics, x: number, y: number, rotation: number, size: number, color: number, alpha: number): void {
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const halfW = size;
+  const halfH = size * 0.5;
+  const points = [
+    [-halfW, -halfH],
+    [halfW, -halfH],
+    [halfW, halfH],
+    [-halfW, halfH]
+  ].flatMap(([dx, dy]) => [x + dx * cos - dy * sin, y + dx * sin + dy * cos]);
+  graphics.poly(points).fill({ color, alpha });
+}
+
+// Well-mixed hash to [0, 1) (murmur3 finalizer). Effect particles use neighbouring seeds, which a
+// single xorshift round maps to nearly the same value, so they need a stronger mix.
+function effectRandom(seed: number): number {
+  let value = seed >>> 0;
+  value = Math.imul(value ^ (value >>> 16), 0x85ebca6b);
+  value = Math.imul(value ^ (value >>> 13), 0xc2b2ae35);
+  value ^= value >>> 16;
+  return (value >>> 0) / 4294967296;
+}
+
+// Linear blend of two 0xRRGGBB colours.
+function mixColor(from: number, to: number, amount: number): number {
+  const channel = (shift: number) => {
+    const a = (from >> shift) & 0xff;
+    const b = (to >> shift) & 0xff;
+    return Math.round(a + (b - a) * amount) << shift;
+  };
+  return channel(16) | channel(8) | channel(0);
 }
 
 // Emits a small plume behind ships that are moving forward along their facing direction.
@@ -776,6 +865,10 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   const pulse = 0.5 + 0.5 * Math.sin(now / 80 + hashString(projectile.id) * 0.03);
   // Trail length matches 1/10 s of travel, the look the old per-snapshot delta produced at 10 Hz snapshots.
   const trailLength = Math.max(10, Math.min(30, (speed / 10) * 2.4 + 10));
+  // Enemy fire is drawn in hot red/orange so incoming bolts read differently from the player's blue pulses.
+  const palette = projectile.hostile
+    ? { outer: 0xff4a2a, streak: 0xffe2c8, glow: 0xff7a3a, core: 0xfff4e8 }
+    : { outer: 0x2aa8ff, streak: 0xeefaff, glow: 0x4bcfff, core: 0xf8fdff };
 
   // The projectile is drawn in local space and rotated to align with travel direction.
   const container = new Container();
@@ -783,22 +876,22 @@ function createProjectileEffect(projectile: ProjectileSnapshot, now: number): Co
   container.rotation = angle;
 
   const outerGlow = new Graphics();
-  outerGlow.ellipse(-trailLength * 0.42, 0, trailLength * 0.6, 4.6 + pulse * 1.2).fill(0x2aa8ff);
+  outerGlow.ellipse(-trailLength * 0.42, 0, trailLength * 0.6, 4.6 + pulse * 1.2).fill(palette.outer);
   outerGlow.alpha = 0.15 + pulse * 0.08;
   container.addChild(outerGlow);
 
   const innerStreak = new Graphics();
-  innerStreak.ellipse(-trailLength * 0.3, 0, trailLength * 0.34, 1.5 + pulse * 0.5).fill(0xeefaff);
+  innerStreak.ellipse(-trailLength * 0.3, 0, trailLength * 0.34, 1.5 + pulse * 0.5).fill(palette.streak);
   innerStreak.alpha = 0.88;
   container.addChild(innerStreak);
 
   const coreGlow = new Graphics();
-  coreGlow.circle(0, 0, 6 + pulse * 1.6).fill(0x4bcfff);
+  coreGlow.circle(0, 0, 6 + pulse * 1.6).fill(palette.glow);
   coreGlow.alpha = 0.18 + pulse * 0.08;
   container.addChild(coreGlow);
 
   const core = new Graphics();
-  core.circle(0, 0, 2.5 + pulse * 0.7).fill(0xf8fdff);
+  core.circle(0, 0, 2.5 + pulse * 0.7).fill(palette.core);
   core.alpha = 0.98;
   container.addChild(core);
 

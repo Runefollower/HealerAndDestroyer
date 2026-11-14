@@ -2,6 +2,7 @@ import { getShipStats } from "@healer/content";
 import {
   applyPlayerMovementInput,
   DEFAULT_SHIP_MOVEMENT_PROFILE,
+  driftOffset,
   integratePlayerMovement,
   PLAYER_MOVEMENT_INPUT_RATE_HZ,
   type ShipMovementProfile,
@@ -224,6 +225,15 @@ export class WorldRenderPredictor {
       return { ...enemy, position: { x: pose.x, y: pose.y }, rotation: pose.rotation };
     });
 
+    // Drops drift with drag on the server; follow the same decaying curve, then blend any wall bounce.
+    const drops = snapshot.drops.map((drop) => {
+      const offset = driftOffset(drop.velocity, drop.angularVelocity, Math.max(0, elapsedSeconds));
+      const target = { x: drop.position.x + offset.x, y: drop.position.y + offset.y, rotation: drop.rotation + offset.rotation };
+      const pose = this.smoothRemote(drop.id, snapshot.tick, now, target, drop.velocity);
+      seen.add(drop.id);
+      return { ...drop, position: { x: pose.x, y: pose.y }, rotation: pose.rotation };
+    });
+
     for (const id of this.remotePoses.keys()) {
       if (!seen.has(id)) {
         this.remotePoses.delete(id);
@@ -234,6 +244,7 @@ export class WorldRenderPredictor {
       ...snapshot,
       players,
       enemies,
+      drops,
       // Projectiles fly in straight lines at constant speed, so extrapolation is exact until they hit something.
       projectiles: snapshot.projectiles.map((projectile) => ({
         ...projectile,

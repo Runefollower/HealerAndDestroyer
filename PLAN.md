@@ -140,6 +140,12 @@ The following major milestones are already implemented in the current prototype 
 - every map has an undiscovered deeper exit that reserves its destination seed and archetype; the first trip through generates and persists `map-depth-<n>`
 - snapshots carry exits and the nearby exit; `E` travels, and a map's deeper exit is locked while it has an active foundry
 
+26. Combat consequences and first encounter pass (§9)
+- each enemy deals its own `contactDamage` at most once per `attackCooldownMs` (enemy AI moved to `simulation/combat.ts`)
+- at 0 hull the ship is destroyed: half the carried cargo plus half the hull and module build cost drop as a wreck reserved for the owner for 60 s; the lost ship leaves the stable and the player respawns at the root spawn in a free Fallback Sparrow with 3 s of damage immunity; ship and enemy deaths emit §12 explosion effects
+- enemy roles: melee (drone, sentry), ranged Sentinel that holds range and fires hostile bolts, and stationary defense turrets
+- foundries get fortification pockets (turret rings planned clear of exits, spawn, and builder), rebuild one lost turret per interval while standing, produce a per-archetype enemy mix, and drop a depth-scaled reward
+
 ## Summary
 
 The next phase should turn the current procedural cave prototype into a more content-ready exploration loop. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, first-pass client viewport culling, and centralized terrain material definitions. The next major unlock is using those foundations to make exploration, materials, objectives, and ship progression less placeholder-like and closer to the design document.
@@ -150,8 +156,8 @@ Done in this phase: the first resource expansion (§7), generation validation an
 
 Remaining, in recommended order:
 
-1. make combat consequential: use each enemy's `contactDamage` (a flat 4 per tick is applied today, about 120 hull per second), and add ship destruction and respawn, since a ship at 0 hull can still fly, fire, and mine (§9)
-2. add encounter and objective variety around enemy infrastructure, defensive pockets, and foundry-adjacent pressure, placed per archetype and depth (§9)
+1. ~~make combat consequential~~ and ~~add encounter variety around foundries~~: first pass done (completed step 26); remaining §9 items are listed in §9
+2. (folded into 1)
 3. grow ship and module content into concrete archetype data for healer, destroyer, miner, and heavy progression, and make mass, power, and thrust affect play (§10)
 4. add scanner/sensor discovery tools on top of the minimap (§11)
 5. scale the world graph: branching exits, simulating only occupied maps, and wiring durable persistence (§8, Assumptions)
@@ -398,26 +404,35 @@ Next implementation target:
 
 ### 9. Encounter, objective, and enemy infrastructure growth
 
-Status: foundry objective first pass complete; variety and infrastructure behavior next.
+Status: combat consequences and first encounter pass complete (completed step 26); escalation and feedback next.
 
-- the current foundry loop proves the basic objective gate: destroy a structure, reduce pressure, unlock the deeper path
+- the foundry loop proves the objective gate: destroy a structure, reduce pressure, unlock the deeper path
 - the GDD calls for enemy fortification pockets, default defense rebuilding, richer enemy roles, and objective escalation
-- this should come after generation validation so encounters can be placed in reliable spaces
 
-Loose ends from the current build (do these first):
+Completed in the first pass:
 
-- enemy contact damage ignores `EnemyDefinition.contactDamage` and applies a flat 4 hull per tick (about 120 per second at 30 Hz), so a 100-hull scout dies in under a second of contact
-- reaching 0 hull only logs "Player ship destroyed"; the ship keeps flying, firing, and mining. The GDD failure loop (§4.3: drop salvage, respawn in a fallback ship, recover) is not implemented
-- enemies have no ranged attack, and scout and sentry differ only in stats; both chase the nearest visible player in a straight line
-- foundry destruction drops a fixed reward that does not scale with depth or archetype
+- contact damage uses each `EnemyDefinition.contactDamage`, once per `attackCooldownMs` per enemy (was a flat 4 hull every tick, about 120 per second)
+- ship destruction (GDD §4.3, §16): at 0 hull, 50% of carried resources (`CARGO_SPILL_FRACTION`) plus 50% of the hull and installed modules' build cost (`WRECK_SALVAGE_FRACTION`) drop at the death site as a wreck with `ownerPlayerId`/`protectedUntil` (60 s, owner-only pickup). The destroyed ship is removed from the stable, the player respawns at the root spawn in a free "Fallback Sparrow" (starter loadout) with 3 s of invulnerability, and gets a "Ship Destroyed" toast plus fresh builder state. Other ships in the stable are untouched
+- enemy roles in content (`role`, `attackCooldownMs`, `visionRadiusTiles`, `collisionRadius`, optional `ranged`): melee drone and sentry; the ranged **Sentinel** (GDD §11.2) holds about 140 px and fires bolts; the stationary **Defense Turret** guards foundries. Projectiles carry a `faction`: enemy bolts hit only players and stop on rock without mining it; snapshots mark them `hostile` and the client draws them red/orange
+- fortification pockets: archetype `content.foundry` now sets `enemyMix`, `defenseCount`, `defenseRebuildMs`, and a base `reward`. Turret slots are planned on a ring around the foundry, on open terrain and at least 80 px from exits, spawn, and builder sites; deeper maps add one turret per two depth levels. Turrets do not count toward the spawn cap. Standing foundries are garrisoned on load and on discovery (enemies are not persisted)
+- defense rebuilding (GDD §12.2-12.3): an active foundry rebuilds one empty slot once `defenseRebuildMs` has passed since the last loss or rebuild (40 s root, 30 s arena), never while a ship sits on the slot, and never after the foundry is destroyed
+- depth scaling: foundry reward is the archetype base times `1 + 0.5 * depth` (root 30 ferrite / 10 plasma, foundry arena at depth 3 113 ferrite / 40 plasma / 25 stone). Defense slots, enemy mix, and reward persist with the foundry; older saves fall back to the generated template
+- tests in `combat.test.ts` (contact cadence, destruction/salvage/respawn, owner protection, invulnerability, ranged behavior, bolt terrain rules, garrison placement, rebuild timing, persistence) and depth checks in `worldGraph.test.ts`
+
+Known gaps and tuning notes:
+
+- the Sentinel reuses the drone sprite tinted amber and the turret is drawn procedurally; both need fal sprites (`npm run generate:sprites`)
+- respawn always uses the root spawn; there is no player-set spawn point yet (GDD §16.2), and no wreck marker on the minimap (§16.1)
+- installed modules are not dropped as items; their value comes back as resources in the wreck
+- numbers are first-pass and need playtesting: two turrets plus a Sentinel make the root foundry noticeably harder for a 100-hull Sparrow
 
 Next implementation target:
 
-- add at least one additional enemy role beyond the current scout/sentry behavior, such as a defender, repair drone, or burrower
-- create generated enemy fortification pockets around foundries and resource vaults
-- prototype slow defense rebuilding while an enemy production structure is active, stopping rebuilds when the foundry is destroyed
-- add objective feedback for reduced enemy pressure and newly safer routes
-- add acceptance coverage for fortification placement, foundry pressure, and post-destruction state
+- objective feedback for reduced enemy pressure and newly safer routes (for example HUD or minimap marks for remaining defenders and rebuild timers)
+- fortification pockets around resource vaults, not only foundries, and terrain fortification (walls or chokepoints) rather than turrets alone
+- more roles from GDD §11.7: repair drone (heals turrets and foundry, creates target priority) and burrower
+- alert sharing between nearby enemies (GDD §11.6) and patrol/investigate states instead of idle-until-seen
+- wreck marker on the owner's minimap (§16.1)
 
 ### 10. Ship design workstation and module content progression
 
@@ -489,7 +504,15 @@ Next implementation target:
 
 ### 12. Cosmetic feedback: mining, debris, and destruction effects
 
-Status: not started. The current pass only has the short terrain burst from §2.9 (inferred client-side when a visible cell disappears).
+Status: in progress. Drifting debris and dust/explosion effects are done (first part); the mining drone swarm and the ship mining part are next.
+
+Completed so far:
+
+- drops drift server-side: `apps/server/src/simulation/drops.ts` launches every new drop (whatever created it) with a random direction, speed (14–34 px/s), and spin on its first tick, integrates it with exponential drag, and bounces it off terrain and structures (restitution 0.55). Drops spawned against a wall are nudged into open space; drops come to rest after a few seconds. Pickup runs before drift each tick so a drop under a ship is collected where it appeared. Tuning lives in `DROP_DRIFT` in `packages/shared/src/effects.ts`
+- snapshots carry drop `velocity`, `rotation`, and `angularVelocity`; the client extrapolates along the same drag curve (`driftOffset`) and blends wall bounces like other remote entities, and draws salvage rotated
+- effect events: the server records short-lived `EffectEvent`s on the map (`apps/server/src/simulation/effects.ts`) and snapshots include the visible ones for about one second (`effects`). Kinds: `dust` when a mining module clears a block, `rockBurst` when weapon fire breaks one, and `explosion` sized to the blast for unstable crystal detonations (blast radius), enemy kills (28 px), and foundry destruction (64 px)
+- client: `apps/client/src/game/worldEffects.ts` plays each event once (deduped by id, capped at 32 active, late events start part-way through), and `renderWorld.ts` draws them into two retained `Graphics` objects that are cleared and redrawn each frame (dust and bursts above terrain, explosions above ships), so effects allocate nothing per frame. These replace the old client-inferred terrain burst
+- player ship destruction has no event yet: call `emitEffect(map, { kind: "explosion", ... })` from the death/respawn work in §9 when a ship is destroyed
 
 The goal is to make mining, salvage, and destruction feel physical without changing who owns gameplay state: the server stays authoritative for anything that affects play (mining timing, drop positions, pickups), and the client owns pure visuals.
 
@@ -524,8 +547,8 @@ Dust and explosion effects:
 
 Next implementation target:
 
-- debris drift first (self-contained, server plus client, testable)
-- then dust/explosion effects, with destruction events added to snapshots
+- ~~debris drift first (self-contained, server plus client, testable)~~ done
+- ~~then dust/explosion effects, with destruction events added to snapshots~~ done (player ship explosion waits on §9 death/respawn)
 - then the mining job and drone swarm, together with the ship mining part
 - tests: mining job timing and cancellation, drop drift and terrain collision staying within map bounds, drops remaining collectible, and snapshot fields for jobs and destruction events
 

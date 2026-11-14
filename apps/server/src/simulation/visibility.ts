@@ -1,9 +1,12 @@
+import { enemyDefinitions } from "@healer/content";
 import {
   distance,
   isSolidTerrainCell,
   type ActiveMapState,
   type ChunkSnapshot,
   type DropSnapshot,
+  type EffectEvent,
+  toDropSnapshot,
   type EnemySnapshot,
   type EnemyState,
   type FoundrySnapshot,
@@ -31,11 +34,6 @@ const visibleVisibility = 2 as TerrainVisibilityState;
 const playerVisionRadiusTiles = 14;
 // Player vision can reveal this many consecutive solid terrain tiles before fully occluding.
 const playerOccludingTileDepth = 3;
-// Enemy vision radii are tuned per enemy type so AI awareness can differ by content id.
-const enemyVisionRadiusTilesByType: Record<string, number> = {
-  "drone-scout": 6,
-  "burrow-sentry": 5
-};
 
 export interface PlayerVisibilityView {
   // Snapshot arrays are already filtered and shaped for one receiving player.
@@ -46,6 +44,7 @@ export interface PlayerVisibilityView {
   structures: StructureSnapshot[];
   foundries: FoundrySnapshot[];
   drops: DropSnapshot[];
+  effects: EffectEvent[];
   // visibleTiles is reused by callers that need the exact tile set for additional logic.
   visibleTiles: Set<string>;
   // memoryChanged flags when fog-of-war memory should eventually be persisted.
@@ -126,6 +125,7 @@ export function buildPlayerVisibilityView(
     drops: Object.values(map.drops)
       .filter((drop) => isPositionVisible(drop.position, visibleTiles))
       .map(toDropSnapshot),
+    effects: (map.effects ?? []).filter((effect) => isPositionVisible(effect.position, visibleTiles)),
     visibleTiles,
     memoryChanged
   };
@@ -169,7 +169,7 @@ export function computeVisibleTiles(map: ActiveMapState, origin: { x: number; y:
 
 // Returns the vision radius for an enemy type, falling back to the conservative default.
 function getEnemyVisionRadiusTiles(enemy: EnemyState): number {
-  return enemyVisionRadiusTilesByType[enemy.enemyTypeId] ?? 5;
+  return enemyDefinitions.find((entry) => entry.id === enemy.enemyTypeId)?.visionRadiusTiles ?? 5;
 }
 
 // Converts a world-space point into a terrain tile key and checks it against the visible set.
@@ -326,7 +326,8 @@ function toProjectileSnapshot(projectile: ProjectileState): ProjectileSnapshot {
   return {
     id: projectile.id,
     position: projectile.position,
-    velocity: { ...projectile.velocity }
+    velocity: { ...projectile.velocity },
+    hostile: projectile.faction === "enemy"
   };
 }
 
@@ -354,11 +355,3 @@ function toFoundrySnapshot(foundry: FoundryState): FoundrySnapshot {
   };
 }
 
-// Converts live resource drop state into the network snapshot shape.
-function toDropSnapshot(drop: ActiveMapState["drops"][string]): DropSnapshot {
-  return {
-    id: drop.id,
-    position: drop.position,
-    resources: drop.resources
-  };
-}

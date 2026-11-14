@@ -8,6 +8,7 @@ import {
   type ResourceMap
 } from "@healer/shared";
 import { CHUNK_SIZE } from "./createWorld.js";
+import { emitEffect } from "./effects.js";
 
 // TILE_SIZE converts between pixel/world coordinates and persisted terrain cells.
 export const TILE_SIZE = 32;
@@ -55,9 +56,12 @@ export function worldToTile(position: { x: number; y: number }): TileAddress | n
   };
 }
 
+// TerrainDamageCause picks the cosmetic effect: mining leaves a dust cloud, weapon fire a rock burst.
+export type TerrainDamageCause = "mining" | "weapon";
+
 // Applies unlimited mining damage and returns whether the terrain cell was actually cleared.
 export function mineTerrainAt(map: ActiveMapState, position: { x: number; y: number }, tickCounter: number, yieldMultiplier = 1): boolean {
-  return damageTerrainAt(map, position, Number.POSITIVE_INFINITY, tickCounter, yieldMultiplier).destroyed;
+  return damageTerrainAt(map, position, Number.POSITIVE_INFINITY, tickCounter, yieldMultiplier, "mining").destroyed;
 }
 
 // Applies weapon/mining damage to one terrain cell and creates a resource drop on destruction.
@@ -66,7 +70,8 @@ export function damageTerrainAt(
   position: { x: number; y: number },
   damage: number,
   tickCounter: number,
-  yieldMultiplier = 1
+  yieldMultiplier = 1,
+  cause: TerrainDamageCause = "weapon"
 ): TerrainDamageResult {
   // Resolve the target tile and reject positions outside known terrain.
   const tile = worldToTile(position);
@@ -100,6 +105,16 @@ export function damageTerrainAt(
     position: { x: position.x, y: position.y },
     resources
   };
+  // Volatile blocks always explode, sized to their blast; ordinary blocks puff dust or burst apart.
+  const cellCenter = { x: (tile.tileX + 0.5) * TILE_SIZE, y: (tile.tileY + 0.5) * TILE_SIZE };
+  emitEffect(map, {
+    id: `terrain-${tile.chunkKey}-${tile.cellIndex}-${tickCounter}`,
+    kind: material.explosionRadiusTiles ? "explosion" : cause === "mining" ? "dust" : "rockBurst",
+    position: cellCenter,
+    radius: material.explosionRadiusTiles ? (material.explosionRadiusTiles + 0.5) * TILE_SIZE : TILE_SIZE * 0.75,
+    tint: material.burstTint,
+    tick: tickCounter
+  });
   return { hit: true, destroyed: true, resources };
 }
 

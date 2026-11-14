@@ -59,6 +59,8 @@ Key files:
   - builder/stable UI rendering and interactions
 - `apps/client/src/game/renderWorld.ts`
   - HUD and world rendering
+- `apps/client/src/game/worldEffects.ts`
+  - plays server effect events (dust, rock bursts, explosions) once each with a cap; drawn by `renderWorld.ts`
 - `apps/client/src/game/minimap.ts`
   - fog-of-war minimap overlay (unknown / remembered / visible terrain plus visible markers), toggled with `M`
 - `apps/client/src/game/networkClient.ts`
@@ -114,7 +116,9 @@ Key files:
 - `apps/server/src/simulation/moduleActions.ts`
   - weapon fire, mining activation, and support activation rules
 - `apps/server/src/simulation/foundries.ts`
-  - foundry spawning, enemy counts, destruction, and objective unlock state
+  - foundry creation from archetype config, enemy-mix spawning, fortification turret slots and slow rebuilding, depth-scaled rewards, destruction, and objective unlock state
+- `apps/server/src/simulation/combat.ts`
+  - enemy AI by role (melee, ranged, turret), contact and ranged attacks, player damage and respawn invulnerability, enemy kills, and wreck salvage rules for destroyed ships
 - `apps/server/src/simulation/terrain.ts`
   - chunk/tile addressing and mining result application
 - `apps/server/src/simulation/mapPersistence.ts`

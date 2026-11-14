@@ -76,6 +76,7 @@ export function applyWeaponFire(
   map.projectiles[projectileId] = {
     id: projectileId,
     mapId: player.mapId,
+    faction: "player",
     ownerPlayerId: player.playerId,
     position: spawnPosition,
     velocity: scaleVec2(direction, weapon.range),
