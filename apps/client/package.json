@@ -7,6 +7,8 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/orbitron": "^5.3.0",
     "@healer/content": "0.1.0",
     "@healer/shared": "0.1.0",
     "pixi.js": "^8.10.1"

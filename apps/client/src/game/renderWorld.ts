@@ -148,56 +148,97 @@ export interface HudSelections {
 
 // Renders the HTML mission HUD from the latest visibility-filtered snapshot.
 export function renderHud(hud: HTMLElement, snapshot: SnapshotMessage, minimized: boolean, selections: HudSelections): void {
-  // Inventory arrives as a resource map and is flattened into simple HUD copy.
-  const inventoryEntries = Object.entries(snapshot.inventory)
-    .map(([resource, amount]) => `${resource}: ${amount}`)
-    .join("<br/>");
   const objective = describeObjective(snapshot);
-  const foundryStatus = describeFoundryStatus(snapshot);
+  const energy = `${Math.floor(snapshot.selfEnergy)} / ${Math.round(snapshot.selfMaxEnergy)}`;
+  const energyBar = `<div class="ui-bar ui-bar-energy"><i style="width:${energyPercent(snapshot)}%"></i></div>`;
 
   hud.classList.toggle("minimized", minimized);
 
-  // Minimized mode keeps the objective visible while hiding the detailed status panel.
+  // Minimized mode keeps the objective and energy visible while hiding the detailed status sections.
   if (minimized) {
     hud.innerHTML = `
-      <div class="hud-header">
-        <p class="panel-title">Mission HUD</p>
-        <button class="hud-toggle" type="button" data-action="toggle-hud">Expand</button>
-      </div>
-      <div>Map: ${snapshot.mapId}</div>
-      <div class="energy-bar"><div class="energy-bar-fill" style="width:${energyPercent(snapshot)}%"></div></div>
-      <div class="muted-copy">${objective}</div>
+      <header class="ui-head">
+        <span class="ui-title">Mission HUD</span>
+        <button class="ui-btn ui-small" type="button" data-action="toggle-hud">Expand</button>
+      </header>
+      <section class="ui-sec">
+        <div class="ui-row"><span class="ui-label">Energy</span><span class="ui-val">${energy}</span></div>
+        ${energyBar}
+      </section>
+      <section class="ui-sec"><p class="ui-copy">${objective}</p></section>
     `;
     return;
   }
 
+  const foundry = describeFoundryStat(snapshot);
+  const deeperPath = snapshot.deeperPathUnlocked ? '<b class="ui-ok">open</b>' : '<b class="ui-warn">destroy the foundry</b>';
   hud.innerHTML = `
-    <div class="hud-header">
-      <p class="panel-title">Mission HUD</p>
-      <button class="hud-toggle" type="button" data-action="toggle-hud">Minimize</button>
-    </div>
-    <div class="hud-body">
-      <div><strong>Objective:</strong> ${objective}</div>
-      <div>${foundryStatus}</div>
-      <div>Map: ${snapshot.mapId}</div>
-      <div>Players nearby: ${snapshot.players.length}</div>
-      <div>Enemies nearby: ${snapshot.enemies.length}</div>
-      <div>Foundries nearby: ${snapshot.foundries.length}</div>
-      <div>Builder site nearby: ${snapshot.builderSiteNearby ? "yes" : "no"}</div>
-      <div>Deeper path unlocked: ${snapshot.deeperPathUnlocked ? "yes" : "destroy the foundry"}</div>
-      <div>Exit nearby: ${describeNearbyExit(snapshot)}</div>
-      <div>Energy: ${Math.floor(snapshot.selfEnergy)} / ${Math.round(snapshot.selfMaxEnergy)}</div>
-      <div class="energy-bar"><div class="energy-bar-fill" style="width:${energyPercent(snapshot)}%"></div></div>
-      <div>Weapon slot: ${selections.weapon}</div>
-      <div>Mining slot: ${selections.mining}</div>
-      <div>Support slot: ${selections.support}</div>
-      <div>${inventoryEntries}</div>
-      <div>Controls: WASD move, Space fire, right click mine, left click repair, E interact or travel, M map</div>
-      <div>Selection: 1 cycle weapon, 2 cycle mining, 3 cycle support</div>
-    </div>
+    <header class="ui-head">
+      <span class="ui-title">Mission HUD</span>
+      <button class="ui-btn ui-small" type="button" data-action="toggle-hud">Minimize</button>
+    </header>
+    <section class="ui-sec">
+      <div class="ui-label">Objective</div>
+      <p class="ui-copy">${objective}</p>
+    </section>
+    <section class="ui-sec">
+      <div class="ui-row"><span class="ui-label">Energy</span><span class="ui-val">${energy}</span></div>
+      ${energyBar}
+    </section>
+    <section class="ui-sec">
+      <div class="ui-label">Sector</div>
+      <div class="ui-stats">
+        <div><span>Map</span><b>${snapshot.mapId}</b></div>
+        <div><span>Players</span><b>${snapshot.players.length}</b></div>
+        <div><span>Enemies</span><b>${snapshot.enemies.length}</b></div>
+        <div><span>Foundries</span><b>${snapshot.foundries.length}</b></div>
+        <div><span>Builder site</span>${snapshot.builderSiteNearby ? '<b class="ui-ok">in range</b>' : "<b>no</b>"}</div>
+        <div><span>Exit</span><b${snapshot.nearbyExitId ? ' class="ui-ok"' : ""}>${describeNearbyExit(snapshot)}</b></div>
+        <div class="ui-wide"><span>Foundry</span><b>${foundry}</b></div>
+        <div class="ui-wide"><span>Deeper path</span>${deeperPath}</div>
+      </div>
+    </section>
+    <section class="ui-sec">
+      <div class="ui-label">Loadout</div>
+      <div class="ui-slots">
+        ${renderHudSlot("1", "Weapon", selections.weapon)}
+        ${renderHudSlot("2", "Mining", selections.mining)}
+        ${renderHudSlot("3", "Support", selections.support)}
+      </div>
+    </section>
+    <section class="ui-sec">
+      <div class="ui-label">Cargo</div>
+      <div class="ui-chips">${renderCargoChips(snapshot.inventory)}</div>
+    </section>
+    <section class="ui-sec">
+      <div class="ui-label">Controls</div>
+      <div class="ui-keys">
+        <div><span class="ui-k"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><em>Move</em></div>
+        <div><span class="ui-k"><kbd>Space</kbd></span><em>Fire</em></div>
+        <div><span class="ui-k"><kbd>RMB</kbd></span><em>Mine</em></div>
+        <div><span class="ui-k"><kbd>LMB</kbd></span><em>Repair</em></div>
+        <div><span class="ui-k"><kbd>E</kbd></span><em>Interact / travel</em></div>
+        <div><span class="ui-k"><kbd>M</kbd></span><em>Map</em></div>
+        <div><span class="ui-k"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><em>Cycle slots</em></div>
+      </div>
+    </section>
   `;
 }
 
+// One loadout row: the key that cycles it, the capability, and the selected module (or offline).
+function renderHudSlot(key: string, capability: string, label: string): string {
+  const offline = label === "offline";
+  return `<div class="ui-slot${offline ? " ui-off" : ""}"><kbd>${key}</kbd><span>${capability}</span><b>${label}</b></div>`;
+}
+
+// Resource chips for the cargo hold, colour-keyed by resource.
+function renderCargoChips(inventory: SnapshotMessage["inventory"]): string {
+  const entries = Object.entries(inventory).filter(([, amount]) => amount > 0);
+  if (!entries.length) {
+    return '<span class="ui-muted">Hold empty</span>';
+  }
+  return entries.map(([resource, amount]) => `<span class="ui-chip" data-resource="${resource}">${resource.replace(/-/g, " ")} <b>${amount}</b></span>`).join("");
+}
 // Energy fill for the HUD bar, as a whole-number percentage.
 function energyPercent(snapshot: SnapshotMessage): number {
   return Math.round(Math.max(0, Math.min(1, snapshot.selfEnergy / Math.max(1, snapshot.selfMaxEnergy))) * 100);
@@ -1019,17 +1060,17 @@ function describeObjective(snapshot: SnapshotMessage): string {
 // Produces the HUD line for the exit the ship is close enough to use, if any.
 function describeNearbyExit(snapshot: SnapshotMessage): string {
   const exit = snapshot.exits.find((entry) => entry.connectionId === snapshot.nearbyExitId);
-  return exit ? `${describeExit(exit)}${exit.locked ? "" : " (press E)"}` : "no";
+  return exit ? `${describeExit(exit)}${exit.locked ? "" : " [E]"}` : "none";
 }
 
-// Produces foundry health/defender status copy for the HUD.
-function describeFoundryStatus(snapshot: SnapshotMessage): string {
+// Produces compact foundry health/defender status for the HUD sector grid.
+function describeFoundryStat(snapshot: SnapshotMessage): string {
   const activeFoundry = snapshot.foundries.find((foundry) => foundry.active);
   if (activeFoundry) {
-    return `Foundry integrity: ${activeFoundry.health} | defenders: ${activeFoundry.activeEnemyCount}/${activeFoundry.spawnCap}`;
+    return `integrity ${activeFoundry.health} · defenders ${activeFoundry.activeEnemyCount}/${activeFoundry.spawnCap}`;
   }
   if (snapshot.foundries.length > 0) {
-    return "Foundry status: destroyed";
+    return "destroyed";
   }
-  return "Foundry status: none on this map";
+  return "none on this map";
 }

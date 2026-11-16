@@ -247,8 +247,8 @@ export async function bootstrapClient(): Promise<void> {
 
     // Show immediate loading copy while waiting for the authoritative builderState response.
     builder.innerHTML = `
-      <p class="panel-title">Builder Site</p>
-      <div class="muted-copy">Syncing builder state...</div>
+      <header class="ui-head"><span class="ui-title">Builder Site</span></header>
+      <div class="ui-muted">Syncing builder state...</div>
     `;
     syncBuilderVisibility(builder, store);
     network.send({ type: "interact" });

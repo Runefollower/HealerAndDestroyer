@@ -149,37 +149,41 @@ export function renderBuilderState(
 ): void {
   const normalizedDraft = normalizeBuilderDraft(draft, message, inventory);
   const design = resolveDesignState(normalizedDraft, message, inventory);
-  const buildingShips = message.ships.filter((entry) => entry.ship.status === "building");
-  const storedModuleSummary = message.craftedModules.length
-    ? message.craftedModules.map((entry) => `<div>${labelModule(entry.moduleId)}: ${entry.quantity}</div>`).join("")
-    : '<div class="muted-copy">No crafted modules in storage.</div>';
-  const buildQueueSummary = buildingShips.length
-    ? `<div class="muted-copy">${buildingShips.length} hull ${buildingShips.length === 1 ? "is" : "are"} under construction.</div>`
-    : '<div class="muted-copy">No active ship builds right now.</div>';
+  const buildingCount = message.ships.filter((entry) => entry.ship.status === "building").length;
+  const buildQueueSummary = buildingCount
+    ? `${buildingCount} hull${buildingCount === 1 ? "" : "s"} under construction`
+    : "No active ship builds";
+  const storedModules = message.craftedModules.length
+    ? `<div class="ui-chips">${message.craftedModules.map((entry) => `<span class="ui-chip">${labelModule(entry.moduleId)} <b>${entry.quantity}</b></span>`).join("")}</div>`
+    : '<div class="ui-muted">No crafted modules in storage.</div>';
+  const hasRefitShips = getRefitShips(message).length > 0;
 
   builder.innerHTML = `
-    <p class="panel-title">Builder Site</p>
-    ${buildQueueSummary}
-    <div class="builder-workstation">
-      <div class="builder-mode-row">
-        <button data-action="design-mode-new" ${design.mode === "new" ? "disabled" : ""}>New Ship</button>
-        <button data-action="design-mode-refit" ${design.mode === "refit" ? "disabled" : ""}>Refit Ship</button>
-      </div>
-      ${renderSelector(design)}
-      <div class="ship-card-header">
-        ${renderPlayerShipPreviewMarkup(design.hull.id, design.previewModules, design.shipState?.shipId ?? `draft-${design.hull.id}`, `${design.hull.name} preview`)}
-        <div class="ship-preview-copy">
-          <strong>${design.mode === "new" ? design.hull.name : design.shipState?.ship.name}</strong><br/>
-          Hull: ${design.hull.name}<br/>
-          Build time: ${formatDuration(design.hull.buildTimeMs)}<br/>
-          ${renderStatsPreview(design.stats)}
-        </div>
-      </div>
-      ${renderHardpointEditor(design)}
-      ${renderDesignSummary(design, inventory)}
+    <header class="ui-head">
+      <span class="ui-title">Builder Site</span>
+      <span class="ui-sub">${buildQueueSummary}</span>
+    </header>
+    <div class="ui-tabs">
+      <button class="ui-tab${design.mode === "new" ? " ui-active" : ""}" data-action="design-mode-new">New Ship</button>
+      <button class="ui-tab${design.mode === "refit" ? " ui-active" : ""}" data-action="design-mode-refit" ${hasRefitShips ? "" : "disabled"}>Refit Ship</button>
     </div>
-    <div class="section-label">Stored Modules</div>
-    <div>${storedModuleSummary}</div>
+    ${renderSelector(design, message)}
+    <div class="ui-ship">
+      <div class="ui-preview">
+        ${renderPlayerShipPreviewMarkup(design.hull.id, design.previewModules, design.shipState?.shipId ?? `draft-${design.hull.id}`, `${design.hull.name} preview`)}
+        <span class="ui-fig">Fig. 1 · ${design.hull.name}</span>
+      </div>
+      <div class="ui-shipstats">
+        ${renderStatsPreview(design.stats)}
+        <div class="ui-buildtime">Build time <b>${formatDuration(design.hull.buildTimeMs)}</b></div>
+      </div>
+    </div>
+    ${renderHardpointEditor(design)}
+    ${renderDesignSummary(design, inventory)}
+    <section class="ui-sec">
+      <div class="ui-label">Stored modules</div>
+      ${storedModules}
+    </section>
     ${renderShipInventory(message, clockOffsetMs)}
   `;
 }
@@ -195,20 +199,20 @@ export function refreshBuilderTimers(builder: HTMLElement, message: BuilderState
     const progress = Math.round(getBuildProgress(shipState, remainingBuildMs) * 100);
     const statusNode = builder.querySelector<HTMLElement>(`[data-build-status="${shipState.ship.id}"]`);
     const progressNode = builder.querySelector<HTMLElement>(`[data-build-progress="${shipState.ship.id}"]`);
-    const percentNode = builder.querySelector<HTMLElement>(`[data-build-percent="${shipState.ship.id}"]`);
 
     if (statusNode) {
-      statusNode.textContent = `Construction underway: ${formatDuration(remainingBuildMs)} remaining`;
+      statusNode.textContent = describeBuildStatus(remainingBuildMs, progress);
     }
     if (progressNode) {
       progressNode.style.width = `${progress}%`;
     }
-    if (percentNode) {
-      percentNode.textContent = `Build progress: ${progress}%`;
-    }
   }
 }
 
+// Short status line for a hull under construction.
+function describeBuildStatus(remainingBuildMs: number, progress: number): string {
+  return `Building · ${formatDuration(remainingBuildMs)} left · ${progress}%`;
+}
 // Normalizes draft indices and seeds default module choices from the selected hull/ship.
 function normalizeBuilderDraft(draft: BuilderDesignDraft, message: BuilderStateMessage, inventory: ResourceMap, resetModules = false): BuilderDesignDraft {
   draft.hullIndex = wrapIndex(draft.hullIndex, hullDefinitions.length);
@@ -282,94 +286,112 @@ function resolveDesignState(draft: BuilderDesignDraft, message: BuilderStateMess
 }
 
 // Renders the top selector for new hulls or existing ships.
-function renderSelector(design: DesignState): string {
+function renderSelector(design: DesignState, message: BuilderStateMessage): string {
   if (design.mode === "new") {
-    return `
-      <div class="builder-selector">
-        <button data-action="design-hull-prev">Prev Hull</button>
-        <strong>${design.hull.name}</strong>
-        <button data-action="design-hull-next">Next Hull</button>
-      </div>
-    `;
+    const hullIndex = hullDefinitions.findIndex((hull) => hull.id === design.hull.id);
+    return renderPicker("design-hull", `Hull ${hullIndex + 1} / ${hullDefinitions.length}`, design.hull.name, false, "ui-hull");
   }
+  const refitShips = getRefitShips(message);
+  const shipIndex = refitShips.findIndex((entry) => entry.shipId === design.shipState?.shipId);
+  const swap =
+    design.shipState?.ship.status === "ready"
+      ? `<button class="ui-btn ui-small" data-action="swap" data-target="${design.shipState.shipId}">Swap to this ship</button>`
+      : '<span class="ui-ok">Currently active</span>';
   return `
-    <div class="builder-selector">
-      <button data-action="design-ship-prev">Prev Ship</button>
-      <strong>${design.shipState?.ship.name ?? "No ship"}</strong>
-      <button data-action="design-ship-next">Next Ship</button>
-    </div>
-    ${design.shipState?.ship.status === "ready" ? `<button data-action="swap" data-target="${design.shipState.shipId}">Swap To This Ship</button>` : '<span class="muted-copy">Currently active</span>'}
+    ${renderPicker("design-ship", `Ship ${shipIndex + 1} / ${refitShips.length} · ${design.hull.name}`, design.shipState?.ship.name ?? "No ship", false, "ui-hull")}
+    <div class="ui-swap">${swap}</div>
   `;
 }
 
-// Renders the active hardpoint and compatible module cycler.
+// Renders a prev/next cycler around a caption and value; actionPrefix gets -prev / -next appended.
+function renderPicker(actionPrefix: string, caption: string, value: string, disabled = false, extraClass = ""): string {
+  const disabledAttr = disabled ? "disabled" : "";
+  return `
+    <div class="ui-picker ${extraClass}">
+      <button class="ui-btn ui-arrow" data-action="${actionPrefix}-prev" aria-label="Previous" ${disabledAttr}>&#8249;</button>
+      <div><small>${caption}</small><strong>${value}</strong></div>
+      <button class="ui-btn ui-arrow" data-action="${actionPrefix}-next" aria-label="Next" ${disabledAttr}>&#8250;</button>
+    </div>
+  `;
+}
+
+// Renders the active hardpoint and compatible module cycler side by side.
 function renderHardpointEditor(design: DesignState): string {
-  const moduleCopy = design.activeModule.moduleId
-    ? `${labelModule(design.activeModule.moduleId)} (${design.activeModule.source})`
-    : "Empty mount";
+  const moduleName = design.activeModule.moduleId ? labelModule(design.activeModule.moduleId) : "Empty mount";
+  const moduleCaption = design.activeModule.moduleId ? moduleSourceCopy[design.activeModule.source] : "no module fitted";
   const noOptions = design.moduleOptions.length <= 1 && design.moduleOptions[0]?.moduleId === null;
   return `
-    <div class="section-label">Mount Point</div>
-    <div class="builder-selector">
-      <button data-action="design-hardpoint-prev">Prev Mount</button>
-      <strong>${design.activeHardpoint.id}</strong>
-      <button data-action="design-hardpoint-next">Next Mount</button>
+    <div class="ui-mounts">
+      <div class="ui-label">Mount point</div>
+      ${renderPicker("design-hardpoint", `${design.activeHardpoint.type} · faces ${design.activeHardpoint.orientation}`, design.activeHardpoint.id)}
+      <div class="ui-label">Module</div>
+      ${renderPicker("design-module", noOptions ? "none compatible" : moduleCaption, moduleName, noOptions)}
     </div>
-    <div class="muted-copy">Type: ${design.activeHardpoint.type} | Orientation: ${design.activeHardpoint.orientation}</div>
-    <div class="builder-selector">
-      <button data-action="design-module-prev" ${noOptions ? "disabled" : ""}>Prev Module</button>
-      <strong>${moduleCopy}</strong>
-      <button data-action="design-module-next" ${noOptions ? "disabled" : ""}>Next Module</button>
-    </div>
-    ${noOptions ? '<div class="muted-copy">No compatible modules available for this mount.</div>' : ""}
   `;
 }
 
-// Renders costs and the committed loadout summary.
+const moduleSourceCopy: Record<ModuleOption["source"], string> = {
+  empty: "no module fitted",
+  stored: "from storage",
+  craftable: "crafted on commit",
+  unaffordable: "can't afford"
+};
+
+// Renders costs, the committed loadout summary, and the commit button.
 function renderDesignSummary(design: DesignState, inventory: ResourceMap): string {
   const moduleRows = design.hull.hardpoints
     .map((hardpoint) => {
       const moduleId = design.selectedModules[hardpoint.id];
-      return `<div>${hardpoint.id}: ${moduleId ? labelModule(moduleId) : "Empty"}</div>`;
+      const active = hardpoint.id === design.activeHardpoint.id ? " ui-current" : "";
+      return `<div class="ui-hp${active}"><span><i class="ui-dot" data-slot="${hardpoint.type}"></i>${hardpoint.id}</span><b${moduleId ? ' class="ui-fitted"' : ""}>${moduleId ? labelModule(moduleId) : "Empty"}</b></div>`;
     })
     .join("");
+  const costs =
+    design.mode === "new"
+      ? `<div><span>Hull cost</span><b>${formatResources(design.hull.buildCost)}</b></div>
+         <div><span>Craft on commit</span><b>${formatResources(design.craftCost)}</b></div>`
+      : `<div><span>Craft on commit</span><b>${formatResources(design.craftCost)}</b></div>`;
   return `
-    <div class="section-label">Design Summary</div>
-    <div>${moduleRows}</div>
-    <div class="muted-copy">Hull cost: ${formatResources(design.hull.buildCost)}</div>
-    <div class="muted-copy">Craft-on-commit cost: ${formatResources(design.craftCost)}</div>
-    <div class="muted-copy">Total cost: ${formatResources(design.totalCost)}</div>
-    <div class="muted-copy">Inventory: ${formatResources(inventory)}</div>
-    ${design.commitBlocker ? `<div class="muted-copy">${design.commitBlocker}</div>` : ""}
-    <button data-action="design-submit" ${design.canCommit ? "" : "disabled"}>${design.mode === "new" ? "Start Build" : "Apply Refit"}</button>
+    <div class="ui-summary">
+      <div class="ui-label">Design summary</div>
+      ${moduleRows}
+      <div class="ui-costs">
+        ${costs}
+        <div><span>Total</span><b>${formatResources(design.totalCost)}</b></div>
+        <div class="ui-wide"><span>In cargo</span><b>${formatResources(inventory)}</b></div>
+      </div>
+      ${design.commitBlocker ? `<div class="ui-blocker">${design.commitBlocker}</div>` : ""}
+    </div>
+    <button class="ui-btn ui-primary" data-action="design-submit" ${design.canCommit ? "" : "disabled"}>${design.mode === "new" ? "Start Build" : "Apply Refit"}</button>
   `;
 }
 
-// Renders compact stable/building inventory below the workstation.
+// Renders the stable: every owned ship with its status, and a progress bar for hulls under construction.
 function renderShipInventory(message: BuilderStateMessage, clockOffsetMs: number): string {
   const rows = message.ships
     .map((shipState) => {
-      const remainingBuildMs = getRemainingBuildMs(shipState, clockOffsetMs);
-      const progress = Math.round(getBuildProgress(shipState, remainingBuildMs) * 100);
-      const status =
-        shipState.ship.status === "building"
-          ? `
-            <span data-build-status="${shipState.ship.id}">Construction underway: ${formatDuration(remainingBuildMs)} remaining</span>
-            <div class="build-progress"><div class="build-progress-fill" data-build-progress="${shipState.ship.id}" style="width:${progress}%"></div></div>
-            <span data-build-percent="${shipState.ship.id}">Build progress: ${progress}%</span>
-          `
-          : shipState.ship.status === "active"
-            ? "Currently active"
-            : "Ready in storage";
-      return `<div class="ship-card"><strong>${shipState.ship.name}</strong><br/><span class="muted-copy">${status}</span></div>`;
+      const id = shipState.ship.id;
+      if (shipState.ship.status === "building") {
+        const remainingBuildMs = getRemainingBuildMs(shipState, clockOffsetMs);
+        const progress = Math.round(getBuildProgress(shipState, remainingBuildMs) * 100);
+        return `
+          <div class="ui-card">
+            <strong>${shipState.ship.name}</strong>
+            <span data-build-status="${id}">${describeBuildStatus(remainingBuildMs, progress)}</span>
+            <div class="ui-bar"><i data-build-progress="${id}" style="width:${progress}%"></i></div>
+          </div>`;
+      }
+      const status = shipState.ship.status === "active" ? '<span class="ui-ok">Active</span>' : "<span>Ready in storage</span>";
+      return `<div class="ui-card"><strong>${shipState.ship.name}</strong>${status}</div>`;
     })
     .join("");
   return `
-    <div class="section-label">Stable</div>
-    ${rows || '<div class="ship-card muted-copy">No ships in storage.</div>'}
+    <section class="ui-sec">
+      <div class="ui-label">Stable</div>
+      ${rows || '<div class="ui-muted">No ships in storage.</div>'}
+    </section>
   `;
 }
-
 // Finds ships that can be selected in the refit workstation.
 function getRefitShips(message: BuilderStateMessage): BuilderShipState[] {
   return message.ships.filter((entry) => entry.ship.status !== "building");
@@ -450,19 +472,35 @@ function wrapIndex(index: number, length: number): number {
   return ((index % length) + length) % length;
 }
 
-// Shows the derived flight, power, and durability numbers the server will use for this loadout.
+// Bar scales for the stat preview; set a little above the strongest hull so modules still show growth.
+const statBarScale = { mass: 150, thrust: 160, accel: 100, turn: 600, energy: 200, hull: 300 };
+
+// Shows the derived flight, power, and durability numbers the server will use for this loadout as labelled bars.
 function renderStatsPreview(stats: ShipStats): string {
   const turnDegreesPerSecond = Math.round((stats.movement.rotationStep * 30 * 180) / Math.PI);
-  return `Mass: ${stats.totalMass} | Thrust: ${stats.totalThrust}<br/>
-          Accel: ${Math.round(stats.movement.forwardAcceleration)} | Turn: ${turnDegreesPerSecond}°/s<br/>
-          Power: ${stats.powerDraw}/${stats.powerOutput}${stats.powerDraw > stats.powerOutput ? " (overloaded)" : ""}<br/>
-          Energy: ${stats.energyCapacity} (+${stats.energyRegenPerSecond.toFixed(1)}/s) | Hull: ${stats.maxHull}`;
+  const accel = Math.round(stats.movement.forwardAcceleration);
+  const overloaded = stats.powerDraw > stats.powerOutput;
+  return [
+    statRow("Mass", stats.totalMass / statBarScale.mass, `${stats.totalMass}`),
+    statRow("Thrust", stats.totalThrust / statBarScale.thrust, `${stats.totalThrust}`),
+    statRow("Accel", accel / statBarScale.accel, `${accel}`),
+    statRow("Turn", turnDegreesPerSecond / statBarScale.turn, `${turnDegreesPerSecond}°/s`),
+    statRow("Power", stats.powerDraw / Math.max(1, stats.powerOutput), `${stats.powerDraw} / ${stats.powerOutput}`, overloaded ? "ui-bar-danger" : ""),
+    statRow("Energy", stats.energyCapacity / statBarScale.energy, `${stats.energyCapacity} +${stats.energyRegenPerSecond.toFixed(0)}/s`, "ui-bar-energy"),
+    statRow("Hull", stats.maxHull / statBarScale.hull, `${stats.maxHull}`)
+  ].join("");
+}
+
+// One stat line: label, a 0..1 bar, and the exact value.
+function statRow(label: string, ratio: number, value: string, barClass = ""): string {
+  const width = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+  return `<div class="ui-stat"><span>${label}</span><div class="ui-bar ${barClass}"><i style="width:${width}%"></i></div><b>${value}</b></div>`;
 }
 
 // Formats resources into compact builder copy.
 function formatResources(resources: ResourceMap): string {
   const entries = Object.entries(resources).filter(([, amount]) => amount !== 0);
-  return entries.length ? entries.map(([resource, amount]) => `${resource}: ${amount}`).join(", ") : "none";
+  return entries.length ? entries.map(([resource, amount]) => `${resource.replace(/-/g, " ")} ${amount}`).join(" · ") : "none";
 }
 
 // Looks up module display names while keeping unknown ids visible during development.
