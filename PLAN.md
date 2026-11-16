@@ -146,6 +146,12 @@ The following major milestones are already implemented in the current prototype 
 - enemy roles: melee (drone, sentry), ranged Sentinel that holds range and fires hostile bolts, and stationary defense turrets
 - foundries get fortification pockets (turret rings planned clear of exits, spawn, and builder), rebuild one lost turret per interval while standing, produce a per-archetype enemy mix, and drop a depth-scaled reward
 
+27. Blueprint UI style for the HUD and builder
+- the Mission HUD and Builder Site panels share a "Blueprint" look (blue grid paper, white linework, Orbitron and IBM Plex Mono fonts bundled through `@fontsource`), picked from 10 mockups; the shared rules are the `.ui-*` classes in `apps/client/index.html`
+- the HUD groups its content into objective, energy, sector, loadout, cargo, and controls sections; controls show as key caps, and minimized mode keeps the energy bar and objective
+- the builder has New/Refit tabs, arrow pickers for hull/ship, mount, and module, labelled stat bars, the real ship art in a drawing frame, a design summary that marks the current mount, and a stable list with build progress
+- next: carry the style to toasts, the minimap, and the frame-rate overlay so every panel matches
+
 ## Summary
 
 The next phase should turn the current procedural cave prototype into a more content-ready exploration loop. The multiplayer slice now has builder flow, module-gated actions, foundry pressure, deeper-path unlocks, persistence, terrain sprites, entity sprites, authoritative collision, projectile-driven terrain destruction, shatter feedback, a player-centered camera, first-pass visibility, terrain memory, spatial-slice acceptance coverage, larger generated root/deeper maps, first-pass client viewport culling, and centralized terrain material definitions. The next major unlock is using those foundations to make exploration, materials, objectives, and ship progression less placeholder-like and closer to the design document.

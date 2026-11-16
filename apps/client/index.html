@@ -22,74 +22,6 @@
         height: 100vh;
       }
 
-      #hud {
-        position: fixed;
-        top: 16px;
-        left: 16px;
-        display: grid;
-        gap: 8px;
-        padding: 12px 14px;
-        background: rgba(5, 10, 16, 0.72);
-        border: 1px solid rgba(132, 204, 255, 0.25);
-        border-radius: 14px;
-        backdrop-filter: blur(12px);
-        min-width: 220px;
-      }
-
-      #hud.minimized {
-        min-width: 180px;
-      }
-
-      .hud-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .energy-bar {
-        width: 160px;
-        height: 6px;
-        margin: 2px 0 4px;
-        border-radius: 3px;
-        background: #071018;
-        overflow: hidden;
-      }
-
-      .energy-bar-fill {
-        height: 100%;
-        background: #f5c84c;
-      }
-
-      .hud-toggle {
-        padding: 6px 10px;
-        margin: 0;
-        font-size: 0.78rem;
-      }
-
-      .hud-body {
-        display: grid;
-        gap: 6px;
-      }
-
-      #builder {
-        position: fixed;
-        right: 16px;
-        top: 16px;
-        width: min(560px, calc(100vw - 32px));
-        max-height: calc(100vh - 32px);
-        overflow: auto;
-        padding: 14px;
-        border-radius: 8px;
-        border: 1px solid rgba(111, 234, 208, 0.25);
-        background: rgba(10, 18, 22, 0.78);
-        display: none;
-      }
-
-      #builder.visible {
-        display: block;
-      }
-
       #minimap {
         position: fixed;
         top: 16px;
@@ -201,23 +133,6 @@
         font-size: 0.86rem;
       }
 
-      button {
-        border: 0;
-        border-radius: 8px;
-        padding: 10px 14px;
-        margin: 0 8px 8px 0;
-        background: linear-gradient(135deg, #49c6ff, #73f3ca);
-        color: #04131c;
-        font-weight: 700;
-        cursor: pointer;
-      }
-
-      button[disabled] {
-        cursor: default;
-        opacity: 0.45;
-        filter: saturate(0.6);
-      }
-
       .panel-title {
         margin: 0;
         font-size: 0.95rem;
@@ -226,63 +141,410 @@
         color: #8cc8ff;
       }
 
-      .ship-card {
-        margin-top: 10px;
-        padding: 10px;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.04);
+      /* Blueprint UI: engineering-drawing panels (blue grid paper, white linework) shared by the
+         Mission HUD and Builder Site. Colours live in the custom properties on .ui-panel. */
+      .ui-panel {
+        --bp-paper: #0d3a6e;
+        --bp-ink: #ffffff;
+        --bp-text: #eaf3ff;
+        --bp-muted: rgba(220, 236, 255, 0.65);
+        --bp-rule: rgba(255, 255, 255, 0.25);
+        --bp-track: rgba(255, 255, 255, 0.14);
+        --bp-energy: #ffe27a;
+        --bp-ok: #9cffd9;
+        --bp-warn: #ffe27a;
+        --bp-danger: #ff8f8f;
+        --bp-display: "Orbitron", "Trebuchet MS", sans-serif;
+        --bp-mono: "IBM Plex Mono", ui-monospace, monospace;
+        position: fixed;
+        top: 16px;
+        box-sizing: border-box;
+        padding: 18px 20px;
+        font-family: var(--bp-mono);
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--bp-text);
+        background-color: var(--bp-paper);
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+        background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        outline: 1px solid rgba(255, 255, 255, 0.75);
+        outline-offset: -6px;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
       }
 
-      .builder-workstation {
-        display: grid;
-        gap: 10px;
-        margin-top: 12px;
+      .ui-panel *,
+      .ui-panel *::before,
+      .ui-panel *::after {
+        box-sizing: border-box;
       }
 
-      .builder-mode-row,
-      .builder-selector {
+      #hud {
+        left: 16px;
+        width: 372px;
+      }
+
+      #hud.minimized {
+        width: 300px;
+      }
+
+      #builder {
+        right: 16px;
+        width: min(540px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        overflow: auto;
+        display: none;
+      }
+
+      #builder.visible {
+        display: block;
+      }
+
+      .ui-head {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .ui-title {
+        font-family: var(--bp-display);
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        color: var(--bp-ink);
+      }
+
+      .ui-sub,
+      .ui-muted,
+      .ui-keys em,
+      .ui-stats span,
+      .ui-slot span,
+      .ui-costs span,
+      .ui-stat span,
+      .ui-card span,
+      .ui-buildtime,
+      .ui-picker small {
+        color: var(--bp-muted);
+      }
+
+      .ui-label {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--bp-ink);
+        margin-bottom: 5px;
+      }
+
+      .ui-label::before {
+        content: "— ";
+      }
+
+      .ui-sec,
+      .ui-ship,
+      .ui-mounts,
+      .ui-summary {
+        padding: 8px 0;
+        border-top: 1px dashed var(--bp-rule);
+      }
+
+      .ui-copy {
+        margin: 0;
+      }
+
+      .ui-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+
+      .ui-row .ui-label {
+        margin: 0;
+      }
+
+      .ui-ok {
+        color: var(--bp-ok);
+      }
+
+      .ui-warn {
+        color: var(--bp-warn);
+      }
+
+      .ui-panel b {
+        font-weight: 600;
+      }
+
+      /* Bars: thin white fills on a faint track; energy is yellow, overload is red. */
+      .ui-bar {
+        height: 6px;
+        margin-top: 4px;
+        background: var(--bp-track);
+        overflow: hidden;
+      }
+
+      .ui-bar i {
+        display: block;
+        height: 100%;
+        background: var(--bp-ink);
+      }
+
+      .ui-bar-energy i {
+        background: var(--bp-energy);
+      }
+
+      .ui-bar-danger i {
+        background: var(--bp-danger);
+      }
+
+      .ui-stats,
+      .ui-costs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 3px 14px;
+      }
+
+      .ui-stats div,
+      .ui-costs div {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .ui-stats .ui-wide,
+      .ui-costs .ui-wide {
+        grid-column: 1 / -1;
+      }
+
+      .ui-stats b,
+      .ui-costs b {
+        text-align: right;
+      }
+
+      .ui-slots {
+        display: grid;
+        gap: 4px;
+      }
+
+      .ui-slot {
+        display: grid;
+        grid-template-columns: auto 64px 1fr;
         align-items: center;
         gap: 8px;
       }
 
-      .builder-selector strong {
-        min-width: 150px;
-        color: #e9f2ff;
+      .ui-off b {
+        color: var(--bp-muted);
+        font-weight: 400;
+        font-style: italic;
       }
 
-      .ship-card-header {
+      .ui-chips {
         display: flex;
-        gap: 12px;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .ui-chip {
+        padding: 3px 8px;
+        border: 1px solid var(--bp-rule);
+        text-transform: capitalize;
+      }
+
+      .ui-chip::before {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 6px;
+        border-radius: 50%;
+        background: var(--bp-ink);
+        vertical-align: 1px;
+      }
+
+      .ui-chip[data-resource="rock"]::before {
+        background: #9aa7b8;
+      }
+
+      .ui-chip[data-resource="ferrite"]::before {
+        background: #e08a4a;
+      }
+
+      .ui-chip[data-resource="plasma-crystal"]::before {
+        background: #c77dff;
+      }
+
+      .ui-chip b {
+        margin-left: 4px;
+      }
+
+      .ui-keys {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px 10px;
+      }
+
+      .ui-keys > div {
+        display: flex;
         align-items: center;
+        gap: 7px;
       }
 
-      .ship-preview {
+      .ui-keys em {
+        font-style: normal;
+      }
+
+      .ui-k {
+        display: inline-flex;
+        gap: 2px;
+      }
+
+      .ui-panel kbd {
+        display: inline-grid;
+        place-items: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        font-family: var(--bp-mono);
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--bp-ink);
+        border: 1px solid var(--bp-ink);
+      }
+
+      /* Buttons are outlined in white ink; the active tab is filled. */
+      .ui-btn,
+      .ui-tab {
+        margin: 0;
+        padding: 6px 12px;
+        font-family: var(--bp-display);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--bp-ink);
+        background: transparent;
+        border: 1px solid var(--bp-ink);
+        border-radius: 0;
+        cursor: pointer;
+      }
+
+      .ui-btn:hover:not([disabled]),
+      .ui-tab:hover:not([disabled]) {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .ui-btn[disabled],
+      .ui-tab[disabled] {
+        cursor: default;
+        opacity: 0.4;
+      }
+
+      .ui-small {
+        padding: 3px 9px;
+        font-size: 10px;
+      }
+
+      .ui-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        margin-bottom: 10px;
+        padding: 3px;
+        border: 1px solid var(--bp-ink);
+        background: var(--bp-track);
+      }
+
+      .ui-tab {
+        border: 0;
+        padding: 7px;
+        color: var(--bp-muted);
+      }
+
+      .ui-tab.ui-active {
+        background: var(--bp-ink);
+        color: var(--bp-paper);
+      }
+
+      .ui-picker {
+        display: grid;
+        grid-template-columns: 34px 1fr 34px;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+
+      .ui-picker small {
+        display: block;
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .ui-picker strong {
+        font-family: var(--bp-display);
+        font-size: 13.5px;
+        font-weight: 500;
+      }
+
+      .ui-hull strong {
+        font-size: 18px;
+      }
+
+      .ui-arrow {
+        padding: 4px 0;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .ui-swap {
+        margin: -2px 0 8px;
+        text-align: center;
+      }
+
+      /* Ship preview: a dashed drawing frame with the real ship art scaled up inside it. */
+      .ui-ship {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 14px;
+        align-items: center;
+        padding: 10px 0;
+      }
+
+      .ui-preview {
         position: relative;
-        width: 132px;
-        height: 78px;
-        flex: 0 0 132px;
+        height: 130px;
         overflow: hidden;
-        border-radius: 14px;
-        border: 1px solid rgba(132, 204, 255, 0.18);
-        background:
-          radial-gradient(circle at 50% 48%, rgba(79, 198, 255, 0.18), rgba(4, 12, 18, 0) 58%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
+        border: 1px dashed var(--bp-ink);
       }
 
-      .ship-preview::after {
+      .ui-preview::before {
         content: "";
         position: absolute;
-        inset: 0;
-        background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-        background-size: 16px 16px;
-        opacity: 0.18;
-        pointer-events: none;
+        left: 12%;
+        right: 12%;
+        top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.6);
       }
 
-      .ship-preview-fallback {
-        background: linear-gradient(180deg, rgba(73, 198, 255, 0.22), rgba(4, 12, 18, 0.18));
+      .ui-preview .ship-preview {
+        position: absolute;
+        inset: 0;
+        scale: 1.4;
+      }
+
+      .ui-fig {
+        position: absolute;
+        left: 6px;
+        bottom: 4px;
+        font-size: 9px;
+        text-transform: uppercase;
+        opacity: 0.7;
       }
 
       .ship-preview-sprite {
@@ -290,87 +552,143 @@
         left: 50%;
         top: 50%;
         transform-origin: center;
-        filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.3));
+        filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
         pointer-events: none;
       }
 
-      .ship-preview-copy {
-        min-width: 0;
+      .ui-shipstats {
+        display: grid;
+        gap: 4px;
       }
 
-      .ship-part-library {
+      .ui-stat {
         display: grid;
-        gap: 10px;
-        margin-top: 8px;
-      }
-
-      .ship-part-gallery {
-        display: grid;
-        gap: 6px;
-      }
-
-      .ship-part-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: 52px 1fr 76px;
+        align-items: center;
         gap: 8px;
       }
 
-      .ship-part-option {
-        padding: 8px;
-        border-radius: 12px;
-        border: 1px solid rgba(132, 204, 255, 0.12);
-        background: rgba(255, 255, 255, 0.03);
+      .ui-stat .ui-bar {
+        height: 5px;
+        margin: 0;
       }
 
-      .ship-part-swatch {
+      .ui-stat b {
+        text-align: right;
+        font-size: 11.5px;
+      }
+
+      .ui-buildtime {
+        margin-top: 2px;
+        font-size: 11px;
+      }
+
+      .ui-buildtime b {
+        color: var(--bp-text);
+      }
+
+      .ui-mounts {
         display: grid;
-        place-items: center;
-        height: 58px;
-        border-radius: 10px;
-        background: radial-gradient(circle at 50% 50%, rgba(79, 198, 255, 0.18), rgba(4, 12, 18, 0.02) 62%);
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+        grid-auto-flow: column;
+        column-gap: 14px;
+        padding-top: 10px;
       }
 
-      .ship-part-swatch img {
-        max-width: 100%;
-        max-height: 48px;
+      .ui-hp {
+        display: flex;
+        justify-content: space-between;
+        padding: 2px 0;
       }
 
-      .ship-part-name {
-        margin-top: 6px;
-        font-size: 0.76rem;
-        color: rgba(233, 242, 255, 0.82);
+      .ui-hp b {
+        color: var(--bp-muted);
+        font-weight: 400;
       }
 
-      .section-label {
-        margin: 14px 0 6px;
-        font-size: 0.9rem;
-        color: #8cc8ff;
+      .ui-hp b.ui-fitted {
+        color: var(--bp-text);
+        font-weight: 600;
       }
 
-      .build-progress {
-        margin: 8px 0;
-        height: 8px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.08);
+      .ui-hp.ui-current span {
+        color: var(--bp-ink);
+        text-decoration: underline dashed;
+        text-underline-offset: 3px;
       }
 
-      .build-progress-fill {
-        height: 100%;
-        border-radius: 999px;
-        background: linear-gradient(90deg, #49c6ff, #73f3ca);
+      .ui-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 7px;
+        border-radius: 50%;
+        background: var(--bp-ink);
+        vertical-align: 1px;
       }
 
-      .muted-copy {
-        color: rgba(233, 242, 255, 0.68);
+      .ui-dot[data-slot="weapon"] {
+        background: #ff6b6b;
+      }
+
+      .ui-dot[data-slot="engine"] {
+        background: var(--bp-energy);
+      }
+
+      .ui-dot[data-slot="utility"],
+      .ui-dot[data-slot="support"] {
+        background: var(--bp-ok);
+      }
+
+      .ui-dot[data-slot="power"] {
+        background: #7fc8ff;
+      }
+
+      .ui-dot[data-slot="armor"] {
+        background: #c9d3de;
+      }
+
+      .ui-costs {
+        grid-template-columns: 1fr;
+        margin-top: 8px;
+      }
+
+      .ui-blocker {
+        margin-top: 8px;
+        padding: 6px 8px;
+        color: var(--bp-warn);
+        border: 1px dashed var(--bp-warn);
+      }
+
+      .ui-primary {
+        display: block;
+        width: 100%;
+        margin: 4px 0 8px;
+        padding: 10px;
+        font-size: 14px;
+        letter-spacing: 0.2em;
+      }
+
+      .ui-card {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 2px 10px;
+        margin-bottom: 5px;
+        padding: 7px 10px;
+        border: 1px solid var(--bp-rule);
+      }
+
+      .ui-card .ui-bar {
+        grid-column: 1 / -1;
       }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="hud"></div>
+    <div id="hud" class="ui-panel"></div>
     <div id="minimap"></div>
-    <div id="builder"></div>
+    <div id="builder" class="ui-panel"></div>
     <div id="notifications"></div>
     <div id="framerate" aria-live="off"></div>
     <script type="module" src="/src/main.ts"></script>
